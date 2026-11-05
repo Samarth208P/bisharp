@@ -60,6 +60,14 @@ contract MockSwap {
     }
 }
 
+contract UptimeFeed {
+    int256 public down;
+    uint256 public started;
+    function set(int256 down_, uint256 started_) external { down = down_; started = started_; }
+    function decimals() external pure returns (uint8) { return 0; }
+    function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80) { return (1, down, started, block.timestamp, 1); }
+}
+
 contract CrossChainTest {
     CrossVm internal constant vm = CrossVm(address(uint160(uint256(keccak256("hevm cheat code")))));
     SourceEscrow source;
@@ -196,6 +204,62 @@ contract CrossChainTest {
         uint256 id = create(); transport.deliver(0);
         vm.prank(USER); vm.expectRevert(CCIPLane.Unauthorized.selector); destination.fillOrder(id);
         require(destUsd.balanceOf(SOLVER) == 1000e6, "solver funding untouched");
+    }
+    function testDestinationRejectsInvalidOracleAnswers() public {
+        uint256 id = create(); transport.deliver(0);
+        feed.set(0, block.timestamp); vm.prank(SOLVER); vm.expectRevert(DestinationExecutor.InvalidPrice.selector); destination.fillOrder(id);
+        feed.set(-1, block.timestamp); vm.prank(SOLVER); vm.expectRevert(DestinationExecutor.InvalidPrice.selector); destination.fillOrder(id);
+        feed.set(2000e8, 0); vm.prank(SOLVER); vm.expectRevert(DestinationExecutor.InvalidPrice.selector); destination.fillOrder(id);
+        feed.set(2000e8, block.timestamp + 1); vm.prank(SOLVER); vm.expectRevert(DestinationExecutor.InvalidPrice.selector); destination.fillOrder(id);
+        feed.set(2200e8, block.timestamp); vm.prank(SOLVER); vm.expectRevert(DestinationExecutor.IneligiblePrice.selector); destination.fillOrder(id);
+        require(destination.getOrder(id).state == O.State.Open, "invalid oracle never fills");
+    }
+    function testSequencerOutageAndRecoveryGraceBoundary() public {
+        UptimeFeed uptime = new UptimeFeed();
+        source = new SourceEscrow(address(usd), address(transport), SOURCE, DEST, 1000e6, 10000e6);
+        destination = new DestinationExecutor(DestinationExecutor.Config(address(destUsd), address(eth), address(transport), DEST, SOURCE, address(swap), 3000, address(feed), 3600, address(uptime), 3600));
+        source.pairPeer(address(destination)); destination.pairPeer(address(source));
+        transport.set(address(source), SOURCE); transport.set(address(destination), DEST);
+        vm.prank(USER); usd.approve(address(source), type(uint256).max);
+        vm.prank(SOLVER); destUsd.approve(address(destination), type(uint256).max);
+        uint256 id = create(); transport.deliver(0);
+        uptime.set(1, block.timestamp - 7200);
+        vm.prank(SOLVER); vm.expectRevert(DestinationExecutor.InvalidPrice.selector); destination.fillOrder(id);
+        uptime.set(0, block.timestamp - 3600);
+        vm.prank(SOLVER); vm.expectRevert(DestinationExecutor.InvalidPrice.selector); destination.fillOrder(id);
+        uptime.set(0, block.timestamp - 3601); fill(id);
+        require(eth.balanceOf(RECIPIENT) == 0.05 ether, "fill resumes after grace");
+    }
+    function testOrderLimitAndOwnerPagination() public {
+        vm.prank(USER); vm.expectRevert(SourceEscrow.InvalidTerms.selector); source.createOrder{value: 1e12}(terms(1000e6 + 1), 400_000);
+        vm.prank(USER); usd.faucet();
+        for (uint256 i; i < 12; i++) create();
+        uint256[] memory ids = source.ownerOrders(USER, 10, 10);
+        require(ids.length == 2 && ids[0] == 2 && ids[1] == 1, "older owner orders reachable");
+        require(source.ownerOrders(USER, 100, 10).length == 0, "past end is empty");
+        vm.expectRevert(SourceEscrow.InvalidTerms.selector); source.ownerOrders(USER, 0, 51);
+    }
+    function testRouteTotalLiabilityCap() public {
+        SourceEscrow capped = new SourceEscrow(address(usd), address(transport), SOURCE, DEST, 100e6, 100e6);
+        capped.pairPeer(address(destination));
+        vm.startPrank(USER); usd.approve(address(capped), type(uint256).max);
+        capped.createOrder{value: 1e12}(terms(100e6), 400_000);
+        vm.expectRevert(SourceEscrow.InvalidTerms.selector); capped.createOrder{value: 1e12}(terms(1), 400_000);
+        vm.stopPrank();
+        require(capped.orderCount() == 1 && capped.totalLiability() == 100e6, "cap enforced before receiving more principal");
+    }
+    function testFuzzFillCancelRace(uint128 seed, bool fillWins, bool duplicateReceipt) public {
+        uint128 principal = seed % 1000e6 + 1;
+        vm.prank(USER); uint256 id = source.createOrder{value: 1e12}(terms(principal), 400_000);
+        transport.deliver(0);
+        if (fillWins) { fill(id); cancel(id); transport.deliver(1); }
+        else { cancel(id); transport.deliver(1); vm.prank(SOLVER); vm.expectRevert(CCIPLane.InvalidState.selector); destination.fillOrder(id); }
+        dispatch(id); transport.deliver(2);
+        if (duplicateReceipt) { transport.deliver(2); dispatch(id); transport.deliver(3); }
+        require(source.credits(fillWins ? SOLVER : USER) == principal && source.credits(fillWins ? USER : SOLVER) == 0, "one beneficiary");
+        source.claim(id);
+        require(source.totalLiability() == 0 && usd.balanceOf(address(source)) == 0, "conservation after race");
+        require(eth.balanceOf(RECIPIENT) == (fillWins ? 0.05 ether : 0), "output matches exclusive outcome");
     }
     function testFuzzCancellationScheduling(uint128 raw, bool cancelFirst, bool duplicates) public {
         uint128 principal = raw % 1000e6 + 1;

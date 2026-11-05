@@ -1,0 +1,13 @@
+{
+  "localOnly": true,
+  "transport": "Unauthenticated local fixture, not live CCIP",
+  "chains": [
+    31337,
+    31338
+  ],
+  "source": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+  "destination": "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE",
+  "deliveredOutput": "2486302890046558",
+  "sourceLiability": "0",
+  "result": "passed"
+}

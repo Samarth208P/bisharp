@@ -1,0 +1,257 @@
+{
+  "seed": "0x6d756d626169",
+  "passed": 31,
+  "failed": 0,
+  "fuzzCases": 30000,
+  "invariantCalls": 262144,
+  "results": [
+    {
+      "suite": "contracts/test/Adversarial.t.sol:AdversarialTest",
+      "name": "testFrozenClaimRetainsOwnershipAndLiability()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/Adversarial.t.sol:AdversarialTest",
+      "name": "testTaxedOutputRejectedAtomically()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/Adversarial.t.sol:AdversarialTest",
+      "name": "testTaxedPrincipalRejectedAtomically()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/Adversarial.t.sol:AdversarialTest",
+      "name": "testTokenCallbackCannotReenterFill()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/Bisharp.t.sol:BisharpInvariantTest",
+      "name": "invariantSolvencyAndExactLiabilities()",
+      "status": "Success",
+      "kind": "invariant",
+      "runs": 1024,
+      "calls": 131072
+    },
+    {
+      "suite": "contracts/test/Bisharp.t.sol:BisharpTest",
+      "name": "testCancelThenClaim()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/Bisharp.t.sol:BisharpTest",
+      "name": "testExpiryBoundary()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/Bisharp.t.sol:BisharpTest",
+      "name": "testFillThenClaim()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/Bisharp.t.sol:BisharpTest",
+      "name": "testFundingFailureIsAtomic()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/Bisharp.t.sol:BisharpTest",
+      "name": "testFuzzPrincipalConservation(uint96,bool)",
+      "status": "Success",
+      "kind": "fuzz",
+      "runs": 10000,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/Bisharp.t.sol:BisharpTest",
+      "name": "testInvalidTermsAndUnknownOrder()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/Bisharp.t.sol:BisharpTest",
+      "name": "testOnlyOwnerCancelsBeforeExpiry()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/Bisharp.t.sol:BisharpTest",
+      "name": "testTriggerAndInvalidOracle()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossChain.t.sol:CrossChainTest",
+      "name": "testCancellationBeforeCreateKeepsTombstone()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossChain.t.sol:CrossChainTest",
+      "name": "testConflictingReceiptRejectedAndPairImmutable()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossChain.t.sol:CrossChainTest",
+      "name": "testDuplicateTransportAndLogicalReceipts()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossChain.t.sol:CrossChainTest",
+      "name": "testExpiryBoundaryClosesOnlyOnDestination()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossChain.t.sol:CrossChainTest",
+      "name": "testFeeExhaustionUsesNoPrincipal()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossChain.t.sol:CrossChainTest",
+      "name": "testFillWinsCancellationAndDelayedReceipt()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossChain.t.sol:CrossChainTest",
+      "name": "testFrozenBeneficiaryClaimRetainsCredit()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossChain.t.sol:CrossChainTest",
+      "name": "testFuzzCancellationScheduling(uint128,bool,bool)",
+      "status": "Success",
+      "kind": "fuzz",
+      "runs": 10000,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossChain.t.sol:CrossChainTest",
+      "name": "testNativeFeeCreditSeparated()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossChain.t.sol:CrossChainTest",
+      "name": "testRejectSpoofedRouterSenderAndDomain()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossChain.t.sol:CrossChainTest",
+      "name": "testRoundTripFillAndClaim()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossChain.t.sol:CrossChainTest",
+      "name": "testSendFailureCannotUndoFill()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossChain.t.sol:CrossChainTest",
+      "name": "testSwapFailureAndStaleFeedAreRecoverable()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossChain.t.sol:CrossChainTest",
+      "name": "testUnauthorizedSolverCannotSpendApprovedFunding()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossInvariant.t.sol:CrossInvariantTest",
+      "name": "invariantSolvencyAndNoPrematureOrDoubleSettlement()",
+      "status": "Success",
+      "kind": "invariant",
+      "runs": 1024,
+      "calls": 131072
+    },
+    {
+      "suite": "contracts/test/RealV3.t.sol:RealV3Test",
+      "name": "testFuzzOfficialV3OutputAndConservation(uint64)",
+      "status": "Success",
+      "kind": "fuzz",
+      "runs": 10000,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/RealV3.t.sol:RealV3Test",
+      "name": "testOfficialV3SlippageRevertsEntireAttempt()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/RealV3.t.sol:RealV3Test",
+      "name": "testOfficialV3SwapAndRoundTrip()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    }
+  ]
+}

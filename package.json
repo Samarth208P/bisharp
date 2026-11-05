@@ -11,7 +11,10 @@
     "contracts:test": "forge test -vv",
     "abi": "node scripts/export-abi.mjs",
     "smoke:local": "node scripts/smoke-local.mjs",
-    "test:ui": "node --experimental-strip-types tests/input.test.ts"
+    "test:ui": "node --experimental-strip-types tests/input.test.ts",
+    "demo:local": "node scripts/local-demo.mjs",
+    "test:report": "node scripts/test-report.mjs",
+    "check:public-build": "node scripts/check-public-build.mjs"
   },
   "dependencies": {
     "@openzeppelin/contracts": "5.4.0",

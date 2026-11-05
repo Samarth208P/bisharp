@@ -26,4 +26,9 @@ test("multi-chain routes bind EVM chain IDs to independent CCIP selectors", () =
 test("reject duplicate routes, same-chain routes, mainnets and invalid addresses", () => {
   for (const value of [[route, route], [{ ...route, destinationChainId: 11155111 }], [{ ...route, sourceChainId: 1 }], [{ ...route, escrow: "0x0" }], [{ ...route, solver: "wrong" }]]) assert.throws(() => parseRoutes(JSON.stringify(value)));
   assert.throws(() => parseRoutes("bad json")); assert.throws(() => parseRoutes("{}"));
+  assert.throws(() => parseRoutes(JSON.stringify([{ ...route, sourceChainId: "11155111" }])));
+  process.env.NEXT_PUBLIC_ENABLE_LOCAL = "true";
+  assert.throws(() => parseRoutes(JSON.stringify([{ ...route, sourceChainId: 31337 }])));
+  assert.equal(parseRoutes(JSON.stringify([{ ...route, sourceChainId: 31337, destinationChainId: 31338 }]))[0].source.selector, 1n);
+  delete process.env.NEXT_PUBLIC_ENABLE_LOCAL;
 });
