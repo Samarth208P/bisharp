@@ -122,7 +122,7 @@ node scripts/test-report.mjs deployments/local-test-results.json 0x6d756d626169
 
 Recorded results: [reports/foundry-results.json](reports/foundry-results.json), [reports/GAS.md](reports/GAS.md), [.gas-snapshot](.gas-snapshot), [deployments/local-smoke-summary.json](deployments/local-smoke-summary.json). Raw test logs are excluded from Git; the summary contains no keys. Tests include real official Uniswap pool bytecode, fuzzed 6/18-decimal amount conservation and output, adversarial message ordering/replay/races, stalled return receipts, invalid oracle answers, sequencer recovery boundaries, frozen claims, token callbacks, exposure caps and source solvency. Frontend input/route tests reject silent rounding, invalid identities, overflows, same-chain/mainnet/duplicate/mixed routes.
 
-The build checker verifies that locally configured deployment keys are absent from public static assets; it never prints their values. This is a targeted check, not a substitute for independent review. Eight frontend/API tests cover inputs, routes and the local faucet boundary. The CI workflow in `.github/workflows/check.yml` runs contract, frontend, build and two-chain integration checks on pushes and pull requests. Local results do not establish remote CI success.
+The build checker verifies that locally configured deployment keys are absent from public static assets; it never prints their values. This is a targeted check, not a substitute for independent review. Eight frontend/API tests cover inputs, routes and the local faucet boundary. Run the commands above locally to verify contracts, frontend behavior, the production build and the two-chain integration.
 
 ## Public testnet deployment — deferred
 

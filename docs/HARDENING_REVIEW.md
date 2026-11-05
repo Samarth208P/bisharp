@@ -22,7 +22,7 @@ audit or a guarantee of flawless operation on public networks.
   restore transport, deliver pending messages, close open expired orders, dispatch
   outcomes and claim every remaining principal. Require zero remaining liability.
   This recovery check assumes transport eventually resumes and transactions are funded.
-- Add `npm run test:integration` to CI. It deploys two fresh local chains, performs
+- Add `npm run test:integration` for local verification. It deploys two fresh local chains, performs
   real Uniswap v3 swaps, verifies delayed-receipt protection, solver settlement and
   cancellation/refund, then stops only the nodes it started. It leaves `.env.local`
   alone and supports separate smoke-test ports when a demo is already running.
