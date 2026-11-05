@@ -1,307 +1,276 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  BaseError, createWalletClient, custom, formatUnits, getAddress, isAddress,
-  parseUnits, type Abi, type Address, type EIP1193Provider, type Hash,
-} from "viem";
-import { escrowAbi } from "@/lib/abi";
-import { escrowAddress, publicClient, sepolia, shortAddress, tokenAbi } from "@/lib/web3";
+import { BaseError, createPublicClient, createWalletClient, custom, decodeEventLog, formatUnits, http, type Abi, type Address, type EIP1193Provider, type Hash } from "viem";
+import { sourceAbi, destinationAbi } from "@/lib/cross-abi";
+import { configuredRoutes, type Route } from "@/lib/routes";
+import { orderInput, type Terms } from "@/lib/order-input";
+import { tokenAbi, shortAddress } from "@/lib/web3";
 
-type Provider = EIP1193Provider & {
-  on?: (event: string, listener: (...args: unknown[]) => void) => void;
-  removeListener?: (event: string, listener: (...args: unknown[]) => void) => void;
-};
-declare global { interface Window { ethereum?: Provider } }
-type Order = {
-  id: bigint; owner: Address; recipient: Address; principal: bigint;
-  minOutput: bigint; maxPrice: bigint; deadline: bigint; status: number; solver: Address;
-};
-type Snapshot = {
-  input: Address; output: Address; feed: Address; price: bigint | null; maxAge: bigint;
-  count: bigint; orders: Order[]; credit: bigint; usd: bigint; eth: bigint;
-  allowance: bigint; outputAllowance: bigint; block: bigint;
-};
-type TxRecord = { hash: Hash; label: string; state: "pending" | "confirmed" | "failed" };
-const number = (value: bigint, decimals: number, digits = 4) => Number(formatUnits(value, decimals)).toLocaleString("en-US", { maximumFractionDigits: digits });
-const money = (value: bigint) => number(value, 18, 2);
-const statuses = ["Unknown", "Open", "Filled", "Cancelled"];
-
-function Icon({ name, size = 20 }: { name: "arrow" | "wallet" | "check" | "clock" | "layers" | "external" | "plus" | "close"; size?: number }) {
-  const paths = {
-    arrow: <><path d="M5 12h14M13 6l6 6-6 6" /></>,
-    wallet: <><path d="M20 8V5H5a2 2 0 0 1 0-4h13v4M3 3v16a2 2 0 0 0 2 2h15V8H5a2 2 0 0 1-2-2" /><path d="M20 12h-5v5h5" /></>,
-    check: <path d="m5 12 4 4L19 6" />,
-    clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
-    layers: <><path d="m12 3 10 5-10 5L2 8l10-5ZM2 12l10 5 10-5M2 16l10 5 10-5" /></>,
-    external: <><path d="M14 3h7v7M21 3 10 14M10 3H3v18h18v-7" /></>,
-    plus: <path d="M12 5v14M5 12h14" />,
-    close: <path d="m6 6 12 12M6 18 18 6" />,
-  };
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
+type Record = { terms: Terms; termsHash: Hash; state: number; claimed: boolean };
+type Row = { id: bigint; source: Record; destination: Record | null };
+type Data = { rows: Row[]; count: bigint; token: Address; allowance: bigint; balance: bigint; credits: bigint; block: bigint; nativeCredit: bigint; at: number };
+type Destination = { token: Address; output: Address; feed: Address; pool: Address; balance: bigint; allowance: bigint; price: bigint | null; nativeCredit: bigint; block: bigint; at: number };
+type Tx = { hash: Hash; chainId: number; label: string; state: "pending" | "confirmed" | "failed"; messages: Hash[] };
+type Action = { label: string; side: "source" | "destination"; address: Address; abi: Abi; functionName: string; args: readonly unknown[]; value?: bigint };
+type Review = { action: Action; terms?: Terms; fee: bigint; budget: bigint };
+const routesConfig = configuredRoutes();
+const ZERO = "0x0000000000000000000000000000000000000000" as Address;
+const GAS = 400_000;
+const RECEIPT_GAS = 300_000;
+const amount = (value: bigint, decimals = 6, digits = 6) => Number(formatUnits(value, decimals)).toLocaleString("en-US", { maximumFractionDigits: digits });
+const equal = (a?: string, b?: string) => Boolean(a && b && a.toLowerCase() === b.toLowerCase());
+const label = (state: number) => ["Message pending", "Open", "Cancellation requested", "Filled", "Cancelled"][state] || "Unknown";
+const explorer = (route: Route, side: Action["side"]) => route[side].chain.blockExplorers!.default.url;
+const rpc = (route: Route, side: Action["side"]) => createPublicClient({ chain: route[side].chain, transport: http(route[side].rpc, { timeout: 15000, retryCount: 1 }) });
+async function read(route: Route, side: Action["side"], address: Address, abi: Abi, functionName: string, args: readonly unknown[] = [], blockNumber?: bigint): Promise<unknown> {
+  return rpc(route, side).readContract({ address, abi, functionName, args, blockNumber });
 }
+const errorText = (error: unknown) => error instanceof BaseError ? error.shortMessage : error instanceof Error ? error.message : "The request failed. Retry after checking your wallet and RPC connection.";
 
 export default function Home() {
+  const [routeIndex, setRouteIndex] = useState(0);
+  const route = routesConfig.routes[routeIndex];
   const [account, setAccount] = useState<Address>();
-  const [chain, setChain] = useState<number>();
-  const [snapshot, setSnapshot] = useState<Snapshot>();
-  const [tab, setTab] = useState<"mine" | "solver">("mine");
-  const [amount, setAmount] = useState("100");
-  const [trigger, setTrigger] = useState("2500");
-  const [minimum, setMinimum] = useState("0.04");
-  const [duration, setDuration] = useState("24");
-  const [recipient, setRecipient] = useState("");
-  const [accepted, setAccepted] = useState(false);
-  const [busy, setBusy] = useState("");
+  const [chainId, setChainId] = useState<number>();
+  const [data, setData] = useState<Data>();
+  const [dest, setDest] = useState<Destination>();
+  const [sourceError, setSourceError] = useState("");
+  const [destError, setDestError] = useState("");
   const [error, setError] = useState("");
-  const [readError, setReadError] = useState("");
   const [notice, setNotice] = useState("");
-  const [lastRead, setLastRead] = useState(0);
-  const [transactions, setTransactions] = useState<TxRecord[]>([]);
+  const [busy, setBusy] = useState("");
   const [now, setNow] = useState(0);
-  const [review, setReview] = useState<{ principal: bigint; minOutput: bigint; maxPrice: bigint; deadline: bigint; recipient: Address }>();
-  const inflight = useRef(false);
-  const reading = useRef(false);
-  const accountRef = useRef(account);
-  accountRef.current = account;
-  const wrongNetwork = Boolean(account && chain !== sepolia.id);
-  const stale = Boolean(lastRead && now - lastRead > 45_000);
+  const [page, setPage] = useState(0);
+  const [view, setView] = useState<"mine" | "all">("mine");
+  const [principal, setPrincipal] = useState("5");
+  const [solverInput, setSolverInput] = useState("5");
+  const [minimum, setMinimum] = useState("0.0015");
+  const [trigger, setTrigger] = useState("2500");
+  const [hours, setHours] = useState(24);
+  const [recipient, setRecipient] = useState("");
+  const [solver, setSolver] = useState("");
+  const [review, setReview] = useState<Review>();
+  const [accepted, setAccepted] = useState(false);
+  const [transactions, setTransactions] = useState<Tx[]>([]);
+  const lock = useRef(false);
+  const generation = useRef(0);
+  const refreshLock = useRef(false);
+  const identity = useRef("");
+  identity.current = `${route?.id}:${account}:${page}:${view}`;
+  const storageKey = `bisharp:cross:${route?.source.chain.id}:${route?.escrow}:${route?.destination.chain.id}:${route?.executor}`;
+  const sourceReady = Boolean(route?.configured && data && !sourceError && now - data.at < 45000);
+  const destReady = Boolean(route?.configured && dest && !destError && now - dest.at < 45000);
 
   const refresh = useCallback(async () => {
-    if (!escrowAddress || reading.current) return;
-    const address = escrowAddress;
-    reading.current = true;
-    const owner = account;
+    if (!route?.configured || !route.escrow || !route.executor || refreshLock.current) return;
+    refreshLock.current = true;
+    const key = `${route.id}:${account}:${page}:${view}`;
+    const source = rpc(route, "source"), destination = rpc(route, "destination");
     try {
-      if (await publicClient.getChainId() !== sepolia.id) throw new Error("The configured RPC is not Ethereum Sepolia.");
-      const block = await publicClient.getBlockNumber({ cacheTime: 0 });
-      const read = (functionName: "inputToken" | "outputToken" | "priceFeed" | "maxPriceAge" | "orderCount") =>
-        publicClient.readContract({ address, abi: escrowAbi, functionName, blockNumber: block });
-      const [input, output, feed, maxAge, count] = await Promise.all([
-        read("inputToken"), read("outputToken"), read("priceFeed"), read("maxPriceAge"), read("orderCount"),
-      ]);
-      const inputAddress = input as Address, outputAddress = output as Address;
-      const [usdDecimals, ethDecimals] = await Promise.all([
-        publicClient.readContract({ address: inputAddress, abi: tokenAbi, functionName: "decimals", blockNumber: block }),
-        publicClient.readContract({ address: outputAddress, abi: tokenAbi, functionName: "decimals", blockNumber: block }),
-      ]);
-      if (usdDecimals !== 6 || ethDecimals !== 18) throw new Error("Unsupported deployment: expected 6-decimal bUSD and 18-decimal bETH.");
-      const total = count as bigint;
-      const first = total > 49n ? total - 49n : 1n;
-      const ids = Array.from({ length: Number(total < 50n ? total : 50n) }, (_, i) => total - BigInt(i)).filter(id => id >= first);
-      const [price, orders, credit, usd, eth, allowance, outputAllowance] = await Promise.all([
-        publicClient.readContract({ address: escrowAddress, abi: escrowAbi, functionName: "currentPrice", blockNumber: block }).catch(() => null),
-        Promise.all(ids.map(async id => ({ id, ...await publicClient.readContract({ address, abi: escrowAbi, functionName: "getOrder", args: [id], blockNumber: block }) }))),
-        owner ? publicClient.readContract({ address: escrowAddress, abi: escrowAbi, functionName: "credits", args: [owner], blockNumber: block }) : 0n,
-        owner ? publicClient.readContract({ address: inputAddress, abi: tokenAbi, functionName: "balanceOf", args: [owner], blockNumber: block }) : 0n,
-        owner ? publicClient.readContract({ address: outputAddress, abi: tokenAbi, functionName: "balanceOf", args: [owner], blockNumber: block }) : 0n,
-        owner ? publicClient.readContract({ address: inputAddress, abi: tokenAbi, functionName: "allowance", args: [owner, escrowAddress], blockNumber: block }) : 0n,
-        owner ? publicClient.readContract({ address: outputAddress, abi: tokenAbi, functionName: "allowance", args: [owner, escrowAddress], blockNumber: block }) : 0n,
-      ]);
-      if (accountRef.current !== owner) return;
-      setSnapshot({ input: inputAddress, output: outputAddress, feed: feed as Address, maxAge: maxAge as bigint, price, count: total, orders, credit, usd, eth, allowance, outputAllowance, block });
-      setReadError("");
-      setLastRead(Date.now());
-    } catch (e) {
-      setReadError(e instanceof BaseError ? e.shortMessage : e instanceof Error ? e.message : "Unable to read Sepolia. Check your RPC URL.");
-    } finally { reading.current = false; }
-  }, [account]);
+      const sourceTask = async () => {
+        if (await source.getChainId() !== route.source.chain.id) throw new Error("Source RPC returned the wrong chain ID.");
+        const block = await source.getBlockNumber({ cacheTime: 0 });
+        const get = (name: string, args: readonly unknown[] = []) => read(route, "source", route.escrow!, sourceAbi, name, args, block);
+        const [token, peer, local, remote, count, nativeCredit, credits] = await Promise.all([get("inputToken"), get("peer"), get("localSelector"), get("remoteSelector"), get(view === "mine" ? "ownerOrderCount" : "orderCount", view === "mine" ? [account || ZERO] : []), get("nativeCredits", [account || ZERO]), get("credits", [account || ZERO])]);
+        if (!equal(peer as Address, route.executor) || local !== route.source.selector || remote !== route.destination.selector) throw new Error("Source pairing/selectors do not match the selected route. Writes are disabled.");
+        const total = count as bigint;
+        const offset = BigInt(page * 10);
+        const ids = view === "mine" ? await get("ownerOrders", [account || ZERO, offset, 10n]) as bigint[] : Array.from({ length: Number(total > offset ? total - offset < 10n ? total - offset : 10n : 0n) }, (_, i) => total - offset - BigInt(i));
+        const [rows, balance, allowance, decimals] = await Promise.all([
+          Promise.all(ids.map(async id => ({ id, source: await get("getOrder", [id]) as Record, destination: null as Record | null }))),
+          read(route, "source", token as Address, tokenAbi, "balanceOf", [account || ZERO], block),
+          read(route, "source", token as Address, tokenAbi, "allowance", [account || ZERO, route.escrow], block),
+          read(route, "source", token as Address, tokenAbi, "decimals", [], block),
+        ]);
+        if (decimals !== 6) throw new Error("Source token must have 6 decimals for this interface.");
+        return { rows, count: total, token: token as Address, balance: balance as bigint, allowance: allowance as bigint, credits: credits as bigint, block, nativeCredit: nativeCredit as bigint, at: Date.now() };
+      };
+      const destTask = async () => {
+        if (await destination.getChainId() !== route.destination.chain.id) throw new Error("Destination RPC returned the wrong chain ID.");
+        const block = await destination.getBlockNumber({ cacheTime: 0 });
+        const get = (name: string, args: readonly unknown[] = []) => read(route, "destination", route.executor!, destinationAbi, name, args, block);
+        const [token, output, peer, local, remote, feed, pool, nativeCredit, price] = await Promise.all([get("inputToken"), get("outputToken"), get("peer"), get("localSelector"), get("remoteSelector"), get("priceFeed"), get("pool"), get("nativeCredits", [account || ZERO]), get("currentPrice").catch(() => null)]);
+        if (!equal(peer as Address, route.escrow) || local !== route.destination.selector || remote !== route.source.selector) throw new Error("Destination pairing/selectors do not match the selected route.");
+        const [balance, allowance, inputDecimals, outputDecimals] = await Promise.all([
+          read(route, "destination", token as Address, tokenAbi, "balanceOf", [account || ZERO], block),
+          read(route, "destination", token as Address, tokenAbi, "allowance", [account || ZERO, route.executor], block),
+          read(route, "destination", token as Address, tokenAbi, "decimals", [], block),
+          read(route, "destination", output as Address, tokenAbi, "decimals", [], block),
+        ]);
+        if (inputDecimals !== 6 || outputDecimals !== 18) throw new Error("Destination token decimals do not match this interface.");
+        return { token: token as Address, output: output as Address, feed: feed as Address, pool: pool as Address, balance: balance as bigint, allowance: allowance as bigint, nativeCredit: nativeCredit as bigint, price: price as bigint | null, block, at: Date.now() };
+      };
+      const [s, d] = await Promise.allSettled([sourceTask(), destTask()]);
+      if (key !== identity.current) return;
+      if (s.status === "fulfilled") {
+        if (d.status === "fulfilled") {
+          const results = await Promise.allSettled(s.value.rows.map(row => read(route, "destination", route.executor!, destinationAbi, "getOrder", [row.id], d.value.block)));
+          if (key !== identity.current) return;
+          s.value.rows.forEach((row, i) => { const result = results[i]; row.destination = result.status === "fulfilled" ? result.value as Record : null; });
+        }
+        setData(s.value); setSourceError("");
+      } else setSourceError(errorText(s.reason));
+      if (d.status === "fulfilled") { setDest(d.value); setDestError(""); } else setDestError(errorText(d.reason));
+    } finally { refreshLock.current = false; }
+  }, [route, account, page, view]);
 
   useEffect(() => {
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    try {
-      const saved = JSON.parse(localStorage.getItem(`bisharp:tx:${escrowAddress || "unconfigured"}`) || "[]") as TxRecord[];
-      if (Array.isArray(saved)) setTransactions(saved.filter(t => /^0x[0-9a-fA-F]{64}$/.test(t.hash) && typeof t.label === "string" && ["pending", "confirmed", "failed"].includes(t.state)).slice(0, 8));
-    } catch { /* An unavailable or old browser store must not block the app. */ }
+    setNow(Date.now()); const timer = setInterval(() => setNow(Date.now()), 1000);
     const provider = window.ethereum;
     const sync = async () => {
+      const version = ++generation.current;
+      setData(undefined); setDest(undefined); setReview(undefined); setAccepted(false);
       if (!provider) return;
-      const addresses = await provider.request({ method: "eth_accounts" }) as Address[];
-      const id = await provider.request({ method: "eth_chainId" });
-      setAccount(addresses[0]);
-      setChain(Number(id));
+      try {
+        const [accounts, id] = await Promise.all([provider.request({ method: "eth_accounts" }), provider.request({ method: "eth_chainId" })]);
+        if (generation.current === version) { setAccount((accounts as Address[])[0]); setChainId(Number(id)); }
+      } catch { if (generation.current === version) setAccount(undefined); }
     };
-    const changed = () => { setSnapshot(undefined); setReview(undefined); setAccepted(false); void sync().catch(() => setAccount(undefined)); };
-    void sync().catch(() => {});
-    provider?.on?.("accountsChanged", changed);
-    provider?.on?.("chainChanged", changed);
-    return () => { clearInterval(timer); provider?.removeListener?.("accountsChanged", changed); provider?.removeListener?.("chainChanged", changed); };
+    const listener = () => void sync(); void sync();
+    provider?.on?.("accountsChanged", listener); provider?.on?.("chainChanged", listener);
+    return () => { clearInterval(timer); provider?.removeListener?.("accountsChanged", listener); provider?.removeListener?.("chainChanged", listener); };
   }, []);
+  useEffect(() => { void refresh(); const timer = setInterval(() => void refresh(), 12000); return () => clearInterval(timer); }, [refresh]);
+  useEffect(() => {
+    try {
+      const value: unknown = JSON.parse(localStorage.getItem(storageKey) || "[]");
+      setTransactions(Array.isArray(value) ? value.filter(t => t && /^0x[0-9a-fA-F]{64}$/.test(t.hash) && typeof t.label === "string" && [route?.source.chain.id, route?.destination.chain.id].includes(t.chainId) && ["pending", "confirmed", "failed"].includes(t.state) && Array.isArray(t.messages)).slice(0, 12) : []);
+    } catch { setTransactions([]); }
+  }, [storageKey, route]);
+  const saveTx = useCallback((tx: Tx) => setTransactions(previous => {
+    const next = [tx, ...previous.filter(t => t.hash !== tx.hash)].slice(0, 12);
+    try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
+    return next;
+  }), [storageKey]);
 
   useEffect(() => {
-    void refresh();
-    const timer = setInterval(() => void refresh(), 15_000);
-    return () => clearInterval(timer);
-  }, [refresh]);
-
-  // Recover pending transaction receipts after a reload without asking for signatures.
-  useEffect(() => {
-    const pending = transactions.filter(t => t.state === "pending");
-    if (!pending.length) return;
-    let cancelled = false;
+    if (!route || !transactions.some(t => t.state === "pending")) return;
+    let stopped = false;
     const check = async () => {
-      for (const tx of pending) {
+      for (const tx of transactions.filter(t => t.state === "pending")) {
         try {
-          const receipt = await publicClient.getTransactionReceipt({ hash: tx.hash });
-          if (!cancelled) {
-            setTransactions(previous => {
-              const updated = previous.map(t => t.hash === tx.hash ? { ...t, state: receipt.status === "success" ? "confirmed" as const : "failed" as const } : t);
-              try { localStorage.setItem(`bisharp:tx:${escrowAddress}`, JSON.stringify(updated)); } catch {}
-              return updated;
-            });
-            void refresh();
-          }
-        } catch { /* A pending transaction does not yet have a receipt. */ }
+          const side = tx.chainId === route.source.chain.id ? "source" : "destination";
+          const receipt = await rpc(route, side).getTransactionReceipt({ hash: tx.hash });
+          if (!stopped) { saveTx({ ...tx, state: receipt.status === "success" ? "confirmed" : "failed", messages: messageIds(receipt.logs, side) }); void refresh(); }
+        } catch { /* Pending receipt remains recoverable after reload. */ }
       }
     };
-    void check();
-    const timer = setInterval(() => void check(), 12_000);
-    return () => { cancelled = true; clearInterval(timer); };
-  }, [transactions, refresh]);
+    void check(); const timer = setInterval(() => void check(), 12000);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [transactions, route, saveTx, refresh]);
 
-  const saveTx = (record: TxRecord) => setTransactions(previous => {
-    const updated = [record, ...previous.filter(t => t.hash !== record.hash)].slice(0, 8);
-    try { localStorage.setItem(`bisharp:tx:${escrowAddress}`, JSON.stringify(updated)); } catch {}
-    return updated;
-  });
-
+  function messageIds(logs: readonly { address: Address; data: Hash; topics: readonly Hash[] }[], side: Action["side"]): Hash[] {
+    return logs.flatMap(log => {
+      if (!equal(log.address, side === "source" ? route?.escrow : route?.executor)) return [];
+      try { const event = decodeEventLog({ abi: sourceAbi, data: log.data, topics: [...log.topics] as [Hash, ...Hash[]] }); return event.eventName === "MessageSent" ? [event.args.messageId] : []; } catch { return []; }
+    });
+  }
   async function connect() {
-    if (inflight.current) return;
-    setError("");
     try {
-      if (!window.ethereum) throw new Error("Install an Ethereum wallet such as MetaMask, then reload this page.");
-      const addresses = await window.ethereum.request({ method: "eth_requestAccounts" });
-      setAccount((addresses as Address[])[0]);
-      setChain(Number(await window.ethereum.request({ method: "eth_chainId" })));
-    } catch (e) { showError(e); }
+      if (!window.ethereum) throw new Error("Install an injected Ethereum wallet such as MetaMask, then reload.");
+      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" }) as Address[];
+      setAccount(accounts[0]); setChainId(Number(await window.ethereum.request({ method: "eth_chainId" })));
+    } catch (e) { setError(errorText(e)); }
   }
-
-  async function switchNetwork() {
-    try {
-      if (!window.ethereum) return;
-      await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0xaa36a7" }] });
-      setChain(sepolia.id);
-    } catch (e) { showError(e); }
-  }
-
-  function showError(e: unknown) {
-    const message = e instanceof BaseError ? e.shortMessage : e instanceof Error ? e.message : "The request failed. Check your wallet and try again.";
-    setError(message);
-  }
-
-  async function transact(label: string, address: Address, functionName: string, args: readonly unknown[] = [], token = false) {
-    if (inflight.current) return;
-    inflight.current = true;
-    setBusy(label); setError(""); setNotice("");
+  async function send(action: Action, value = action.value || 0n) {
+    if (lock.current || !route) return;
+    lock.current = true; setBusy(action.label); setError(""); setNotice("");
     let hash: Hash | undefined;
     try {
       if (!account || !window.ethereum) throw new Error("Connect your wallet first.");
-      if (wrongNetwork) throw new Error("Switch your wallet to Ethereum Sepolia first.");
-      const wallet = createWalletClient({ chain: sepolia, transport: custom(window.ethereum) });
-      const actual = await wallet.getAddresses();
-      if (actual[0]?.toLowerCase() !== account.toLowerCase()) throw new Error("Wallet account changed. Reconnect and try again.");
-      if (await wallet.getChainId() !== sepolia.id) throw new Error("Switch your wallet to Ethereum Sepolia first.");
-      const { request } = await publicClient.simulateContract({ account, address, abi: (token ? tokenAbi : escrowAbi) as Abi, functionName, args });
+      const chain = route[action.side].chain;
+      let wallet = createWalletClient({ chain, transport: custom(window.ethereum as EIP1193Provider) });
+      if (await wallet.getChainId() !== chain.id) {
+        try { await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: `0x${chain.id.toString(16)}` }] }); }
+        catch (e) { if ((e as { code?: number }).code === 4902) { await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{ chainId: `0x${chain.id.toString(16)}`, chainName: chain.name, nativeCurrency: chain.nativeCurrency, rpcUrls: [route[action.side].rpc], blockExplorerUrls: [chain.blockExplorers!.default.url] }] }); } else throw e; }
+        wallet = createWalletClient({ chain, transport: custom(window.ethereum as EIP1193Provider) });
+      }
+      if (await wallet.getChainId() !== chain.id) throw new Error("Wallet network does not match the action.");
+      const active = await wallet.getAddresses();
+      if (!equal(active[0], account)) throw new Error("Wallet account changed. Review again.");
+      const client = rpc(route, action.side);
+      const { request } = await client.simulateContract({ address: action.address, abi: action.abi, functionName: action.functionName, args: action.args, account, value });
       hash = await wallet.writeContract(request);
-      saveTx({ hash, label, state: "pending" });
-      setNotice(`${label}: waiting for Sepolia confirmation.`);
-      const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 180_000 });
-      saveTx({ hash, label, state: receipt.status === "success" ? "confirmed" : "failed" });
-      if (receipt.status !== "success") throw new Error("The transaction reverted. Your order state has not changed. Gas may have been spent.");
-      setNotice(`${label} confirmed.`);
-      if (functionName === "createOrder") { setReview(undefined); setAccepted(false); }
-      await refresh();
-    } catch (e) {
-      showError(e);
-      if (hash) setNotice("A transaction was submitted. Check its explorer link before retrying; it may still confirm.");
-    } finally { setBusy(""); inflight.current = false; }
+      const transaction: Tx = { hash, chainId: chain.id, label: action.label, state: "pending", messages: [] };
+      saveTx(transaction); setNotice("Transaction submitted. Waiting for a receipt; CCIP delivery is a separate step.");
+      const receipt = await client.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 180000 });
+      saveTx({ ...transaction, state: receipt.status === "success" ? "confirmed" : "failed", messages: messageIds(receipt.logs, action.side) });
+      if (receipt.status !== "success") throw new Error("Transaction reverted. Check the explorer before retrying.");
+      setReview(undefined); setNotice(`${action.label} confirmed on ${chain.name}.`); await refresh();
+    } catch (e) { setError(errorText(e)); if (hash) setNotice("A transaction was submitted. Inspect its explorer link before retrying; it may still confirm."); }
+    finally { lock.current = false; setBusy(""); }
   }
-
-  let principal = 0n;
-  try { principal = parseUnits(amount, 6); } catch {}
-  const needsApproval = Boolean(snapshot && principal > snapshot.allowance);
-  const ready = Boolean(escrowAddress && snapshot && !readError && !stale && account && !wrongNetwork && !busy);
-  const ownerOrders = snapshot?.orders.filter(o => o.owner.toLowerCase() === account?.toLowerCase()) || [];
-  const visibleOrders = tab === "mine" ? ownerOrders : snapshot?.orders.filter(o => o.status === 1) || [];
-  const locked = ownerOrders.filter(o => o.status === 1).reduce((sum, o) => sum + o.principal, 0n);
-
-  function openReview(e: React.FormEvent) {
-    e.preventDefault(); setError("");
+  async function reviewAction(action: Action, quoteName: string, quoteArgs: readonly unknown[]) {
+    if (!route || busy) return;
     try {
-      if (!account || !snapshot || !escrowAddress) throw new Error("Connect a wallet and configure the deployed Sepolia contract first.");
-      if (!ready) throw new Error("Wait for a fresh Sepolia connection before reviewing.");
-      if (!/^\d+(\.\d{1,6})?$/.test(amount) || !/^\d+(\.\d{1,18})?$/.test(minimum) || !/^\d+(\.\d{1,18})?$/.test(trigger)) throw new Error("Enter positive decimal amounts: up to 6 decimals for bUSD and 18 for output and price.");
-      const p = parseUnits(amount, 6), m = parseUnits(minimum, 18), t = parseUnits(trigger, 18);
-      if (p <= 0n || m <= 0n || t <= 0n) throw new Error("All order amounts must be greater than zero.");
-      if (p > snapshot.usd) throw new Error("Insufficient bUSD. Get test tokens from the faucet first.");
-      const to = recipient.trim() || account;
-      if (!isAddress(to) || /^0x0{40}$/i.test(to) || to.toLowerCase() === escrowAddress.toLowerCase()) throw new Error("Enter a valid recipient wallet address.");
-      setAccepted(false);
-      setReview({ principal: p, minOutput: m, maxPrice: t, deadline: BigInt(Math.floor(Date.now() / 1000) + Number(duration) * 3600), recipient: getAddress(to) });
-    } catch (e) { showError(e); }
+      const fee = await read(route, action.side, action.address, action.abi, quoteName, quoteArgs) as bigint;
+      setAccepted(false); setError(""); setReview({ action, fee, budget: fee + fee / 5n + 1n });
+    } catch (e) { setError(errorText(e)); }
+  }
+  async function create(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      if (!route?.escrow || !route.executor || !account || !data || !sourceReady) throw new Error("Connect a wallet and a fresh configured source route first.");
+      const terms = orderInput({ owner: account, recipient, solver: solver || route.solver || "", principal, amountIn: solverInput, minOutput: minimum, maxPrice: trigger, hours, now: Date.now() });
+      if (equal(terms.recipient, route.executor)) throw new Error("The destination executor cannot be the recipient.");
+      if (terms.principal > data.balance) throw new Error("Insufficient source bUSD. Mint test tokens first.");
+      const fee = await read(route, "source", route.escrow, sourceAbi, "quoteCreate", [terms, GAS]) as bigint;
+      setAccepted(false); setError(""); setReview({ terms, fee, budget: fee + fee / 5n + 1n, action: { label: "Create order", side: "source", address: route.escrow, abi: sourceAbi, functionName: "createOrder", args: [terms, GAS] } });
+    } catch (e) { setError(errorText(e)); }
   }
 
+  if (!route) return <main className="config-error"><h1>Check route configuration</h1><p role="alert">{routesConfig.error || "No routes configured."}</p></main>;
+  const disabled = Boolean(busy || !account);
+  const sourceLink = (address: Address) => `${explorer(route, "source")}/address/${address}`;
+  const destinationLink = (address: Address) => `${explorer(route, "destination")}/address/${address}`;
   return <>
-    <header className="topbar">
-      <a className="brand" href="/" aria-label="Bisharp home"><span className="brand-mark">b<span /></span>bisharp<span className="brand-dot">.</span></a>
-      <nav aria-label="Main navigation"><a className="nav-active" href="#workspace">Workspace</a><a href="#how-it-works">How it works</a><a href="https://sepolia.etherscan.io" target="_blank" rel="noreferrer">Explorer <Icon name="external" size={13} /></a></nav>
-      <div className="header-actions"><span className="network"><span /> Sepolia <span className="testnet">Testnet</span></span><button className="wallet-button" onClick={account ? wrongNetwork ? switchNetwork : () => void refresh() : connect} disabled={Boolean(busy)}><Icon name="wallet" size={16} />{account ? wrongNetwork ? "Switch to Sepolia" : shortAddress(account) : "Connect wallet"}</button></div>
-    </header>
+    <header className="topbar"><a className="brand" href="/">bisharp<span className="brand-dot">.</span></a><nav aria-label="Main"><a className="nav-active" href="#workspace">Cross-chain orders</a><a href="#how-it-works">How it works</a></nav><div className="header-actions"><span className="network"><span />Testnets only</span><button className="wallet-button" disabled={Boolean(busy)} onClick={connect}>{account ? shortAddress(account) : "Connect wallet"}</button></div></header>
+    <main id="workspace"><section className="page-intro"><div><div className="intro-kicker">Conditional cross-chain settlement</div><h1>Your price.<br />Across chains.</h1><p>Escrow on the source. Solver-funded Uniswap delivery on the destination.<br />Payment follows an authenticated CCIP receipt.</p></div><div className="route-illustration" aria-hidden="true"><div className="route-circle">$</div><div className="route-track">··· → ···</div><div className="route-circle eth-shape">♦</div><span className="route-caption">CCIP 2.0 · Finality required</span></div></section>
+      <div className="test-banner"><p><strong>Testnet release candidate.</strong> bUSD is an unbacked faucet token. No guaranteed fills or refund timing during messaging outages. OP Sepolia has no sequencer-uptime signal configured.</p></div>
+      <div className="route-selector"><label htmlFor="route">Settlement route</label><select id="route" disabled={Boolean(busy)} value={routeIndex} onChange={e => { setRouteIndex(Number(e.target.value)); setData(undefined); setDest(undefined); setSourceError(""); setDestError(""); setReview(undefined); setPage(0); setError(""); setNotice(""); }}>{routesConfig.routes.map((r, i) => <option key={r.id} value={i}>{r.label}{r.configured ? "" : " · not deployed"}</option>)}</select><span>Wallet: {chainId ? chainId : "not connected"}</span></div>
+      {!route.configured && <div className="setup-note"><strong>Configure a deployed route.</strong> Set NEXT_PUBLIC_SOURCE_ADDRESS and NEXT_PUBLIC_DESTINATION_ADDRESS, or provide NEXT_PUBLIC_ROUTES_JSON for multiple testnet routes. See README. No balances or confirmations are simulated in this UI.</div>}
+      {sourceError && <div role="alert" className="alert">Source: {sourceError}</div>}{destError && <div role="alert" className="alert">Destination: {destError}. Source recovery remains available if its RPC is healthy.</div>}
+      {error && <div className="alert" role="alert">{error}<button onClick={() => setError("")}>Dismiss</button></div>}{notice && <div className="notice" role="status">{notice}</div>}
+      {(data && !sourceReady || dest && !destReady) && !sourceError && !destError && <div className="alert" role="status">Data is stale. Refresh before sending transactions.</div>}
+      <div className="workspace-grid"><section className="order-panel"><div className="panel-heading"><div><h2>Create an order</h2><p>{route.source.chain.name} to {route.destination.chain.name}</p></div><span className="small-tag">Buy WETH</span></div><form onSubmit={create}>
+        <div className="amount-box"><div className="field-top"><label htmlFor="principal">You escrow on source</label><span>{data && account ? `${amount(data.balance)} bUSD available` : "Connect to load balance"}</span></div><div className="amount-row"><input id="principal" inputMode="decimal" value={principal} onChange={e => setPrincipal(e.target.value)} required /><span className="token-pill">bUSD</span></div><span className="field-foot">Exact principal. Separate native message fees and gas.</span></div>
+        <div className="flow-divider">↓ Solver swaps its own destination bUSD through Uniswap v3</div>
+        <div className="split-fields"><div><label htmlFor="solver-input">Solver spends (destination bUSD)</label><input className="recipient-input" id="solver-input" inputMode="decimal" value={solverInput} onChange={e => setSolverInput(e.target.value)} required /></div><div><label htmlFor="min-output">Minimum received (WETH)</label><input className="recipient-input" id="min-output" inputMode="decimal" value={minimum} onChange={e => setMinimum(e.target.value)} required /></div></div>
+        <div className="split-fields"><div><label htmlFor="trigger">ETH/USD at or below ($)</label><input className="recipient-input" id="trigger" inputMode="decimal" value={trigger} onChange={e => setTrigger(e.target.value)} required /></div><div><label htmlFor="expiry">Expires in</label><select id="expiry" value={hours} onChange={e => setHours(Number(e.target.value))}><option value={1}>1 hour</option><option value={24}>24 hours</option><option value={72}>3 days</option><option value={168}>7 days</option></select></div></div>
+        <label className="recipient-label" htmlFor="recipient">Destination recipient <span>Defaults to your wallet</span></label><input className="recipient-input" id="recipient" value={recipient} onChange={e => setRecipient(e.target.value)} placeholder="0x…" spellCheck={false} />
+        <label className="recipient-label spaced" htmlFor="solver">Designated solver <span>Fixed funding and source payout identity</span></label><input className="recipient-input" id="solver" value={solver} onChange={e => setSolver(e.target.value)} placeholder={route.solver || account || "0x…"} spellCheck={false} />
+        <div className="order-facts"><span>Quote model<strong>Manually agreed terms · no signed solver quote</strong></span><span>Protocol fee<strong>0 bUSD</strong></span><span>Source gas and CCIP fee<strong>Native test ETH, quoted before signing</strong></span></div>
+        {account ? <button type="submit" className="primary full" disabled={disabled || !sourceReady}>Review exact terms</button> : <button type="button" className="primary full" onClick={connect}>Connect wallet</button>}
+        <p className="form-caption">Approval and creation are separate transactions.</p>
+      </form></section>
+      <div className="right-column"><section className="market-panel"><div className="market-top"><div><h2>Destination ETH / USD</h2><p>On-chain eligibility reference</p></div><span className={`live-label ${destReady && dest?.price ? "is-live" : ""}`}>{destReady && dest?.price ? "Fresh" : "Unavailable"}</span></div><div className="market-price">{dest?.price ? `$${amount(dest.price, 18, 2)}` : "—"}</div><p className="price-explainer">{dest && dest.price === null ? "Oracle checks failed. Fills are blocked; expiry, receipt retries and claims remain available." : "A trigger does not guarantee an executable pool price. The contract also enforces your minimum output."}</p>{dest && <div className="market-footer"><a href={destinationLink(dest.feed)} target="_blank" rel="noreferrer">Feed ↗</a><a href={destinationLink(dest.pool)} target="_blank" rel="noreferrer">Uniswap pool ↗</a></div>}</section>
+        <section className="balances-panel"><h2>Funding & recovery</h2><div className="balance-line"><span>Source bUSD</span><strong>{data && account ? amount(data.balance) : "—"}</strong></div><div className="balance-line"><span>Destination solver bUSD</span><strong>{dest && account ? amount(dest.balance) : "—"}</strong></div><div className="balance-line"><span>Earned source credits</span><strong>{data && account ? amount(data.credits) : "—"}</strong></div><p className="solver-help">Claim each eligible order below. Destination liquidity belongs to the solver; no user principal is bridged.</p><details className="faucet"><summary>Test-token faucets and fee refunds</summary><p>Mint test bUSD on each chain. Gas requires native test ETH on that same chain.</p><div><button className="text-button" disabled={disabled || !sourceReady} onClick={() => data && send({ label: "Mint source bUSD", side: "source", address: data.token, abi: tokenAbi, functionName: "faucet", args: [] })}>Mint source</button><button className="text-button" disabled={disabled || !destReady} onClick={() => dest && send({ label: "Mint destination bUSD", side: "destination", address: dest.token, abi: tokenAbi, functionName: "faucet", args: [] })}>Mint destination</button></div>{data && data.nativeCredit > 0n && <button className="text-button" disabled={disabled || !sourceReady} onClick={() => route.escrow && send({ label: "Claim source fee change", side: "source", address: route.escrow, abi: sourceAbi, functionName: "claimNative", args: [account] })}>Source fee change: {formatUnits(data.nativeCredit, 18)} ETH</button>}{dest && dest.nativeCredit > 0n && <button className="text-button" disabled={disabled || !destReady} onClick={() => route.executor && send({ label: "Claim destination fee change", side: "destination", address: route.executor, abi: destinationAbi, functionName: "claimNative", args: [account] })}>Destination fee change: {formatUnits(dest.nativeCredit, 18)} ETH</button>}</details></section>
+      </div></div>
 
-    <main id="workspace">
-      <section className="page-intro"><div><div className="intro-kicker"><span className="tiny-diamond" /> Your terms. On chain.</div><h1>A better way to wait<br />for your price.</h1><p>Set a price condition. Lock test funds. Let a solver<br className="desktop-break" /> deliver when your terms are met.</p></div><div className="route-illustration" aria-hidden="true"><div className="route-circle">$</div><div className="route-track"><span /><span /><span /><Icon name="arrow" size={24} /></div><div className="route-circle eth-shape">♦</div><span className="route-caption">One condition. One settlement.</span></div></section>
-
-      <div className="test-banner"><span className="banner-icon"><Icon name="layers" size={17} /></span><p><strong>A testnet workspace.</strong> Single-chain Sepolia. bUSD and bETH are free, unbacked test tokens. No bridge or automatic solver.</p><a href="#how-it-works">Understand the flow <Icon name="arrow" size={15} /></a></div>
-
-      {!escrowAddress && <div className="setup-note" role="status"><strong>Ready for your deployment.</strong> The interface is running. Deploy the Foundry contracts, set <code>NEXT_PUBLIC_ESCROW_ADDRESS</code> in <code>.env.local</code>, and restart Next.js to enable transactions. See the project README for commands.</div>}
-      {wrongNetwork && <div className="alert" role="alert">Your wallet is on another network. <button onClick={switchNetwork}>Switch to Ethereum Sepolia</button></div>}
-      {(readError || stale) && <div className="alert" role="alert">{readError || "The displayed data is over 45 seconds old. Refresh before sending transactions."} <button onClick={() => void refresh()}>Retry connection</button></div>}
-      {error && <div className="alert" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss error"><Icon name="close" size={16} /></button></div>}
-      {notice && <div className="notice" role="status">{busy && <span className="spinner" />}{notice}</div>}
-
-      <div className="workspace-grid">
-        <section className="order-panel" aria-labelledby="create-title">
-          <div className="panel-heading"><div><h2 id="create-title">Create an order</h2><p>Buy test bETH on your terms.</p></div><span className="small-tag">Buy</span></div>
-          <form onSubmit={openReview}>
-            <div className="route-label"><span>Network</span><span className="chain-label"><span className="chain-symbol">♦</span> Ethereum Sepolia</span></div>
-            <div className="amount-box"><div className="field-top"><label htmlFor="amount">You lock</label><span>Balance: {snapshot && account ? number(snapshot.usd, 6, 2) : "—"}</span></div><div className="amount-row"><input id="amount" inputMode="decimal" autoComplete="off" value={amount} onChange={e => { setAmount(e.target.value); setReview(undefined); }} required aria-describedby="amount-help" /><span className="token-pill"><span className="coin usd">$</span>bUSD</span></div><span className="field-foot" id="amount-help">Test USD · 6 decimals</span></div>
-            <div className="flow-divider"><span>↓</span><span>Delivered by a solver</span></div>
-            <div className="amount-box receive-box"><div className="field-top"><label htmlFor="minimum">Minimum you receive</label><span>Fixed at creation</span></div><div className="amount-row"><input id="minimum" inputMode="decimal" autoComplete="off" value={minimum} onChange={e => { setMinimum(e.target.value); setReview(undefined); }} required /><span className="token-pill"><span className="coin eth">♦</span>bETH</span></div><span className="field-foot">Test Ether · Unbacked ERC-20</span></div>
-            <div className="split-fields"><div><label htmlFor="trigger">When ETH/USD is at or below</label><div className="input-wrap"><span>$</span><input id="trigger" inputMode="decimal" value={trigger} onChange={e => { setTrigger(e.target.value); setReview(undefined); }} required /></div></div><div><label htmlFor="duration">Expires in</label><select id="duration" value={duration} onChange={e => { setDuration(e.target.value); setReview(undefined); }}><option value="1">1 hour</option><option value="24">24 hours</option><option value="72">3 days</option><option value="168">7 days</option></select></div></div>
-            <label className="recipient-label" htmlFor="recipient">Receive at <span>Optional · defaults to your wallet</span></label><input className="recipient-input" id="recipient" placeholder="0x… or your connected wallet" value={recipient} onChange={e => { setRecipient(e.target.value); setReview(undefined); }} autoComplete="off" spellCheck={false} />
-            <div className="order-facts"><span>Protocol fee <strong>0 bUSD</strong></span><span>Settlement <strong>Ethereum Sepolia</strong></span><span>Network gas <strong>Paid separately in test ETH</strong></span></div>
-            {!account ? <button className="primary full" type="button" onClick={connect}><Icon name="wallet" size={18} /> Connect wallet to begin</button> : <button className="primary full" disabled={!ready || principal <= 0n} type="submit">Review order <Icon name="arrow" size={18} /></button>}
-            <p className="form-caption"><Icon name="check" size={13} /> Funds stay in escrow until fill or cancellation.</p>
-          </form>
-        </section>
-
-        <div className="right-column">
-          <section className="market-panel" aria-labelledby="market-title"><div className="market-top"><span className="coin eth">♦</span><div><h2 id="market-title">ETH / USD</h2><p>Chainlink reference price</p></div><span className={`live-label ${snapshot?.price && !readError && !stale ? "is-live" : ""}`}><span />{snapshot?.price && !readError && !stale ? "Live" : "Offline"}</span></div><div className="market-price">{snapshot?.price ? `$${money(snapshot.price)}` : "—"}<span>USD per ETH</span></div><div className="price-explainer"><Icon name="clock" size={16} /><p>{snapshot?.price ? `Freshness checked on chain. Maximum age: ${Number(snapshot.maxAge) / 60} minutes.` : escrowAddress && snapshot ? "The feed is stale or invalid. Fills are blocked; cancellation and claims remain available." : "The live price appears after a Sepolia contract is configured."}</p></div><div className="market-footer"><span>Reference price only. A fill is never guaranteed.</span>{snapshot && <a href={`https://sepolia.etherscan.io/address/${snapshot.feed}`} target="_blank" rel="noreferrer" aria-label="View price feed on Etherscan"><Icon name="external" size={13} /></a>}</div></section>
-
-          <section className="balances-panel"><h2>Your test funds</h2><div className="balance-line"><span><span className="coin usd small">$</span>Available bUSD</span><strong>{account && snapshot ? number(snapshot.usd, 6, 2) : "—"}</strong></div><div className="balance-line"><span><span className="coin eth small">♦</span>Available bETH</span><strong>{account && snapshot ? number(snapshot.eth, 18, 4) : "—"}</strong></div><div className="balance-summary"><div><span>Locked in loaded orders</span><strong>{account && snapshot ? `${number(locked, 6, 2)} bUSD` : "—"}</strong></div><div><span>Ready to claim</span><strong>{account && snapshot ? `${number(snapshot.credit, 6, 2)} bUSD` : "—"}</strong></div></div><button className="secondary full" disabled={!ready || !snapshot?.credit} onClick={() => escrowAddress && transact("Claim funds", escrowAddress, "claim", [account])}>Claim available funds <Icon name="arrow" size={16} /></button><details className="faucet"><summary>Need test tokens?</summary><p>Mint free demo tokens. You still need Sepolia ETH for gas.</p><div><button className="text-button" disabled={!ready} onClick={() => snapshot && transact("Mint bUSD", snapshot.input, "faucet", [], true)}><Icon name="plus" size={14} />1,000 bUSD</button><button className="text-button" disabled={!ready} onClick={() => snapshot && transact("Mint bETH", snapshot.output, "faucet", [], true)}><Icon name="plus" size={14} />1,000 bETH</button></div><a href="https://faucets.chain.link/sepolia" target="_blank" rel="noreferrer">Get Sepolia gas ETH <Icon name="external" size={12} /></a></details></section>
-        </div>
-      </div>
-
-      <section className="orders-panel" id="orders" aria-labelledby="orders-title"><div className="orders-heading"><div><h2 id="orders-title">Order activity</h2><p>Track escrow, delivery, and settlement in one place.</p></div><button className="refresh-button" onClick={() => void refresh()} disabled={!escrowAddress || Boolean(busy)}>Refresh <span aria-hidden="true">↻</span></button></div><div className="tabs" role="tablist" aria-label="Order views"><button id="tab-mine" role="tab" aria-selected={tab === "mine"} aria-controls="order-list" className={tab === "mine" ? "selected" : ""} onClick={() => setTab("mine")}>Your orders <span>{ownerOrders.length}</span></button><button id="tab-solver" role="tab" aria-selected={tab === "solver"} aria-controls="order-list" className={tab === "solver" ? "selected" : ""} onClick={() => setTab("solver")}>Solver workspace <span>{snapshot?.orders.filter(o => o.status === 1).length || 0}</span></button></div>
-        <div id="order-list" role="tabpanel" aria-labelledby={`tab-${tab}`}>
-          {tab === "solver" && <p className="solver-help">Solvers supply their own bETH, deliver the exact output, then claim the escrowed bUSD. Approve each fill amount separately. No automated keeper is running.</p>}
-          {visibleOrders.length === 0 ? <div className="empty-state"><div className="empty-icon"><Icon name={tab === "mine" ? "layers" : "clock"} size={26} /></div><h3>{!account && tab === "mine" ? "Your orders live here" : tab === "solver" ? "No open orders to fill" : "Your next move starts here"}</h3><p>{!account && tab === "mine" ? "Connect your wallet to see your orders and available claims." : tab === "solver" ? "New orders will appear here after they are confirmed on Sepolia." : "Create your first conditional order using the form above."}</p><span className="empty-network"><span /> Ethereum Sepolia</span></div> : <div className="table-scroll"><table><thead><tr><th>Order</th><th>Locked / output</th><th>Price condition</th><th>Status</th><th>Actions</th></tr></thead><tbody>{visibleOrders.map(o => {
-            const expired = Number(o.deadline) * 1000 <= now;
-            const eligible = Boolean(snapshot?.price && snapshot.price <= o.maxPrice && !expired);
-            const approved = snapshot && snapshot.outputAllowance >= o.minOutput;
-            return <tr key={String(o.id)}><td><strong>#{String(o.id)}</strong><a className="table-address" href={`https://sepolia.etherscan.io/address/${o.recipient}`} target="_blank" rel="noreferrer" title={o.recipient}>{shortAddress(o.recipient)} <Icon name="external" size={10} /></a><small>Expires {new Date(Number(o.deadline) * 1000).toLocaleString()}</small></td><td><strong>{number(o.principal, 6, 2)} bUSD</strong><small>Receive {number(o.minOutput, 18, 8)} bETH</small></td><td>≤ ${money(o.maxPrice)}<small>{o.status === 1 ? expired ? "Expired · close to refund" : eligible ? "Trigger eligible" : "Waiting for price" : "Terms closed"}</small></td><td><span className={`status status-${o.status}`}>{statuses[o.status]}</span>{o.status === 2 && <small>Output delivered</small>}{o.status === 3 && <small>Refund credited</small>}</td><td><div className="row-actions">{o.status === 1 && tab === "mine" && <button className="secondary compact" disabled={!ready} onClick={() => escrowAddress && transact("Cancel order", escrowAddress, "cancelOrder", [o.id])}>Cancel</button>}{o.status === 1 && tab === "solver" && <>{expired ? <button className="secondary compact" disabled={!ready} onClick={() => escrowAddress && transact("Close expired order", escrowAddress, "cancelOrder", [o.id])}>Close expired</button> : <button className="primary compact" disabled={!ready || !eligible || !snapshot || snapshot.eth < o.minOutput || snapshot.price === null} onClick={() => snapshot && escrowAddress && (approved ? transact("Fill order", escrowAddress, "fillOrder", [o.id]) : transact("Approve bETH", snapshot.output, "approve", [escrowAddress, o.minOutput], true))}>{approved ? "Fill order" : "Approve bETH"}</button>}</>}{o.status !== 1 && <span className="muted">Final</span>}</div></td></tr>;
-          })}</tbody></table></div>}
-        </div><div className="orders-footer"><span>{snapshot ? `Latest ${snapshot.orders.length} of ${snapshot.count} orders · block ${snapshot.block}` : "Waiting for deployment connection"}</span><span>{lastRead ? `Updated ${Math.max(0, Math.floor((now - lastRead) / 1000))}s ago` : "On-chain data only"}</span></div>
-        {snapshot && snapshot.count > 50n && <p className="solver-help">This prototype loads only the latest 50 global orders. Older orders and their locked totals are omitted. Claims include all earned credits. Use the contract’s getOrder/cancelOrder functions for older orders.</p>}
+      <section className="orders-panel"><div className="orders-heading"><div><h2>Cross-chain order activity</h2><p>Each chain is read independently. Local receipt confirmation is not cross-chain settlement.</p></div><button className="refresh-button" disabled={Boolean(busy)} onClick={() => void refresh()}>Refresh ↻</button></div><div className="tabs"><button className={view === "mine" ? "selected" : ""} onClick={() => { setView("mine"); setPage(0); setData(undefined); }}>Your orders</button><button className={view === "all" ? "selected" : ""} onClick={() => { setView("all"); setPage(0); setData(undefined); }}>All orders / solver</button></div>
+        {!data?.rows.length ? <div className="empty-state"><div className="empty-icon">⇄</div><h3>{account ? "No orders on this page" : "Connect to see your orders"}</h3><p>Create an order or switch to all orders to inspect solver opportunities.</p></div> : <div className="cross-order-list">{data.rows.map(row => {
+          const s = row.source, d = row.destination, expired = now >= Number(s.terms.deadline) * 1000;
+          const final = s.state === 3 || s.state === 4;
+          const beneficiary = s.state === 3 ? s.terms.solver : s.terms.owner;
+          const canCancel = equal(account, s.terms.owner) || expired;
+          const assigned = equal(account, s.terms.solver);
+          const sourceAction = (functionName: string, text: string, args: readonly unknown[] = [row.id]): Action => ({ label: text, side: "source", address: route.escrow!, abi: sourceAbi, functionName, args });
+          return <article key={String(row.id)} className="cross-order"><div className="cross-order-header"><h3>Order #{String(row.id)} <span>{amount(s.terms.principal)} bUSD → ≥ {amount(s.terms.minOutput, 18, 10)} WETH</span></h3><span className={`status ${s.state === 3 ? "status-2" : s.state === 4 ? "status-3" : ""}`}>{s.claimed ? "Claim transferred" : label(s.state)}</span></div><div className="cross-stages"><div><span>{route.source.chain.name}</span><strong>{s.claimed ? `Paid to ${shortAddress(beneficiary)}` : final ? "Credit ready to claim" : s.state === 2 ? "Cancel request sent · funds locked" : "Principal locked"}</strong></div><span aria-hidden="true">⇄</span><div><span>{route.destination.chain.name}</span><strong>{d ? d.state === 0 ? "Awaiting CREATE message" : d.state === 3 ? "Swap delivered · receipt can be sent" : d.state === 4 ? "Permanently cancelled" : expired ? "Expired · close before refund" : "Registered · awaiting solver" : "Destination state unavailable"}</strong></div></div><p className="order-meta">Trigger ≤ ${amount(s.terms.maxPrice, 18, 2)} · Solver spends {amount(s.terms.amountIn)} bUSD · Expires {new Date(Number(s.terms.deadline) * 1000).toLocaleString()}<br />Recipient <a href={destinationLink(s.terms.recipient)} target="_blank" rel="noreferrer">{s.terms.recipient}</a><br />Solver / source payout <a href={sourceLink(s.terms.solver)} target="_blank" rel="noreferrer">{s.terms.solver}</a></p><div className="row-actions wrap-actions">
+            {!final && canCancel && <button className="secondary compact" disabled={disabled || !sourceReady} onClick={() => reviewAction(sourceAction("requestCancel", "Request cancellation", [row.id, GAS]), "quoteAction", [row.id, true, GAS])}>{s.state === 2 ? "Resend cancellation" : "Request cancellation"}</button>}
+            {!final && <button className="secondary compact" disabled={disabled || !sourceReady} onClick={() => reviewAction(sourceAction("resendCreate", "Resend registration", [row.id, GAS]), "quoteAction", [row.id, false, GAS])}>Resend CREATE</button>}
+            {d?.state === 1 && expired && <button className="secondary compact" disabled={disabled || !destReady} onClick={() => route.executor && send({ label: "Close expired destination order", side: "destination", address: route.executor, abi: destinationAbi, functionName: "expireOrder", args: [row.id] })}>Close on destination</button>}
+            {d?.state === 1 && !expired && assigned && <button className="primary compact" disabled={disabled || !destReady || !dest?.price || dest.price > s.terms.maxPrice || dest.balance < s.terms.amountIn} onClick={() => dest && route.executor && send(dest.allowance < s.terms.amountIn ? { label: "Approve solver input", side: "destination", address: dest.token, abi: tokenAbi, functionName: "approve", args: [route.executor, s.terms.amountIn] } : { label: "Execute Uniswap fill", side: "destination", address: route.executor, abi: destinationAbi, functionName: "fillOrder", args: [row.id] })}>{dest && dest.allowance < s.terms.amountIn ? "Approve solver bUSD" : "Execute Uniswap fill"}</button>}
+            {d && (d.state === 3 || d.state === 4) && !final && <button className="primary compact" disabled={disabled || !destReady} onClick={() => route.executor && reviewAction({ label: "Dispatch terminal receipt", side: "destination", address: route.executor, abi: destinationAbi, functionName: "dispatchReceipt", args: [row.id, RECEIPT_GAS] }, "quoteReceipt", [row.id, RECEIPT_GAS])}>Send / retry receipt</button>}
+            {final && !s.claimed && <button className="primary compact" disabled={disabled || !sourceReady} onClick={() => send(sourceAction("claim", s.state === 3 ? "Claim solver payment" : "Claim refund"))}>Claim {s.state === 3 ? "solver payment" : "refund"}</button>}
+          </div></article>;
+        })}</div>}
+        <div className="pagination"><button className="secondary compact" disabled={page === 0 || Boolean(busy)} onClick={() => { setPage(p => p - 1); setData(undefined); }}>Newer</button><span>Page {page + 1} · {data ? String(data.count) : "—"} {view === "mine" ? "owner" : "total"} orders</span><button className="secondary compact" disabled={!data || BigInt((page + 1) * 10) >= data.count || Boolean(busy)} onClick={() => { setPage(p => p + 1); setData(undefined); }}>Older</button></div><div className="orders-footer"><span>Source block {data ? String(data.block) : "—"} · {data ? `${Math.max(0, Math.floor((now - data.at) / 1000))}s ago` : "not read"}</span><span>Destination block {dest ? String(dest.block) : "—"} · {dest ? `${Math.max(0, Math.floor((now - dest.at) / 1000))}s ago` : "not read"}</span></div>
       </section>
-
-      {transactions.length > 0 && <section className="transactions"><h2>Recent transactions</h2><div>{transactions.map(t => <a key={t.hash} href={`https://sepolia.etherscan.io/tx/${t.hash}`} target="_blank" rel="noreferrer"><span>{t.label} <small>{shortAddress(t.hash)}</small></span><span className={`tx-${t.state}`}>{t.state} <Icon name="external" size={13} /></span></a>)}</div></section>}
-
-      <section className="how-section" id="how-it-works"><div><h2>A clear path from<br />condition to settlement.</h2><p>Test the lifecycle without moving real assets.</p></div><ol><li><span className="step-number">1</span><div><h3>Set your terms</h3><p>Approve an exact bUSD amount, then create an order with a fixed recipient, minimum output, and expiry.</p></div></li><li><span className="step-number">2</span><div><h3>A solver delivers</h3><p>If the fresh oracle price meets your condition, a solver transfers bETH to your recipient and earns the bUSD.</p></div></li><li><span className="step-number">3</span><div><h3>Settle or cancel</h3><p>Cancel an open order to credit a refund. A fill can win the race; the first confirmed outcome is final. Claim credits separately.</p></div></li></ol></section>
-      <footer><a className="footer-brand" href="/">bisharp.</a><span>Built for testing. No real value. No guaranteed fills.</span><div>{escrowAddress && <a href={`https://sepolia.etherscan.io/address/${escrowAddress}`} target="_blank" rel="noreferrer">Escrow contract <Icon name="external" size={12} /></a>}<a href="#workspace">Back to workspace ↑</a></div></footer>
+      {transactions.length > 0 && <section className="transactions"><h2>Transactions & CCIP messages</h2><div>{transactions.map(tx => <div className="transaction-row" key={tx.hash}><a href={`${explorer(route, tx.chainId === route.source.chain.id ? "source" : "destination")}/tx/${tx.hash}`} target="_blank" rel="noreferrer"><span>{tx.label}<small>{shortAddress(tx.hash)} · chain {tx.chainId}</small></span><span>{tx.state} ↗</span></a>{tx.messages.map(id => <a key={id} href={`https://ccip.chain.link/msg/${id}`} target="_blank" rel="noreferrer">CCIP delivery: {shortAddress(id)} ↗</a>)}</div>)}</div></section>}
+      <section className="how-section" id="how-it-works"><div><h2>Execution and payment<br />have separate confirmations.</h2><p>Message fees are separate from escrow principal.</p></div><ol><li><span className="step-number">1</span><div><h3>Lock and register</h3><p>The source stores your terms and sends CREATE through CCIP. Until the destination receives it, your order cannot fill there.</p></div></li><li><span className="step-number">2</span><div><h3>Fill or cancel on the destination</h3><p>The first confirmed terminal outcome wins. A fill can beat a source cancellation request. Swaps must satisfy both the fresh trigger and minimum output.</p></div></li><li><span className="step-number">3</span><div><h3>Send the receipt, then claim</h3><p>Anyone can pay to dispatch or retry a stored terminal receipt. Only its authenticated arrival unlocks a source payment or refund. An outage can delay recovery indefinitely.</p></div></li></ol></section>
+      <footer><span className="footer-brand">bisharp.</span><span>Unaudited testnet release candidate · no production guarantees</span><div>{route.escrow && <a href={sourceLink(route.escrow)} target="_blank" rel="noreferrer">Source escrow ↗</a>}{route.executor && <a href={destinationLink(route.executor)} target="_blank" rel="noreferrer">Destination executor ↗</a>}</div></footer>
     </main>
-
-    {review && <div className="modal-backdrop"><section className="review-modal" role="dialog" aria-modal="true" aria-labelledby="review-title" onKeyDown={e => { if (e.key === "Escape" && !busy) setReview(undefined); if (e.key === "Tab") { const focusable = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), a[href]')); const first = focusable[0], last = focusable[focusable.length - 1]; if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } }}><div className="panel-heading"><div><h2 id="review-title">Review your order</h2><p>Ethereum Sepolia · Test assets only</p></div><button className="icon-button" autoFocus disabled={Boolean(busy)} onClick={() => setReview(undefined)} aria-label="Close review"><Icon name="close" /></button></div><dl className="review-details"><div><dt>Lock in escrow</dt><dd>{number(review.principal, 6, 6)} bUSD</dd></div><div><dt>Minimum output</dt><dd>{number(review.minOutput, 18, 18)} bETH</dd></div><div><dt>ETH/USD trigger</dt><dd>≤ ${money(review.maxPrice)}</dd></div><div><dt>Expires (your timezone)</dt><dd>{new Date(Number(review.deadline) * 1000).toLocaleString()}</dd></div><div><dt>Recipient</dt><dd className="wrap-address">{review.recipient}</dd></div><div><dt>Solver</dt><dd>Any funded wallet · no signed quote</dd></div><div><dt>Fees</dt><dd>0 protocol fee + Sepolia gas</dd></div></dl><p className="modal-warning">A fill is not guaranteed. Your bUSD stays locked until a fill or cancellation. A solver fill can confirm before your cancellation. A successful fill is final.</p><label className="accept-terms"><input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} />I understand the terms and the cancellation race.</label>{error && <p className="modal-error" role="alert">{error}</p>}{notice && <p role="status" className="modal-status">{notice}</p>}<button className="primary full" disabled={!accepted || !ready || Number(review.deadline) * 1000 < now + 300_000} onClick={() => escrowAddress && snapshot && (snapshot.allowance < review.principal ? transact("Approve bUSD", snapshot.input, "approve", [escrowAddress, review.principal], true) : transact("Create order", escrowAddress, "createOrder", [review.principal, review.minOutput, review.maxPrice, review.deadline, review.recipient]))}>{busy || (needsApproval ? "1. Approve exact bUSD amount" : "2. Confirm and create order")}</button><p className="form-caption">Approval and order creation are separate wallet transactions.</p>{snapshot && <p className="token-identities">bUSD: {snapshot.input}<br />bETH: {snapshot.output}<br />Escrow: {escrowAddress}</p>}</section></div>}
+    {review && <div className="modal-backdrop"><section className="review-modal" role="dialog" aria-modal="true" aria-labelledby="review-title" onKeyDown={e => { if (e.key === "Escape" && !busy) setReview(undefined); if (e.key === "Tab") { const elements = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), a[href]')); const first = elements[0], last = elements[elements.length - 1]; if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } }}><div className="panel-heading"><div><h2 id="review-title">{review.action.label}</h2><p>{route[review.action.side].chain.name}</p></div><button className="icon-button" autoFocus disabled={Boolean(busy)} onClick={() => setReview(undefined)} aria-label="Close review">×</button></div><dl className="review-details">{review.terms && <><div><dt>Source principal</dt><dd>{formatUnits(review.terms.principal, 6)} bUSD</dd></div><div><dt>Solver spends</dt><dd>{formatUnits(review.terms.amountIn, 6)} destination bUSD</dd></div><div><dt>Minimum output</dt><dd>{formatUnits(review.terms.minOutput, 18)} WETH</dd></div><div><dt>Trigger price</dt><dd>≤ ${formatUnits(review.terms.maxPrice, 18)}</dd></div><div><dt>Recipient</dt><dd className="wrap-address">{review.terms.recipient}</dd></div><div><dt>Solver and payout</dt><dd className="wrap-address">{review.terms.solver}</dd></div><div><dt>Expiry (local time)</dt><dd>{new Date(Number(review.terms.deadline) * 1000).toLocaleString()}</dd></div></>}<div><dt>CCIP fee quote</dt><dd>{formatUnits(review.fee, 18)} native ETH</dd></div><div><dt>Maximum fee funding</dt><dd>{formatUnits(review.budget, 18)} native ETH</dd></div><div><dt>Network gas</dt><dd>Separate · wallet estimate</dd></div></dl><p className="modal-warning">Unspent fee funding becomes a claimable native credit. Message fees already spent are nonrefundable. A cancellation request is not a refund; a confirmed destination fill can win. There is no guaranteed fill or recovery time during an outage.</p><label className="accept-terms"><input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} />I accept these exact terms and understand the asynchronous settlement risk.</label>{error && <p className="modal-error" role="alert">{error}</p>}{notice && <p className="modal-status" role="status">{notice}</p>}<button className="primary full" disabled={disabled || !accepted || (review.action.side === "source" ? !sourceReady : !destReady) || Boolean(review.terms && Number(review.terms.deadline) * 1000 <= now + 300000)} onClick={() => review.terms && data && route.escrow && data.allowance < review.terms.principal ? send({ label: "Approve exact source bUSD", side: "source", address: data.token, abi: tokenAbi, functionName: "approve", args: [route.escrow, review.terms.principal] }) : send(review.action, review.budget)}>{busy || (review.terms && data && data.allowance < review.terms.principal ? "Approve exact bUSD (then review again)" : `Confirm on ${route[review.action.side].chain.name}`)}</button><p className="token-identities">Source token: {data?.token || "unavailable"}<br />Destination input: {dest?.token || "unavailable"}<br />Destination output: {dest?.output || "unavailable"}<br />Source contract: {route.escrow}<br />Destination contract: {route.executor}</p></section></div>}
   </>;
 }

@@ -14,6 +14,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 interface CrossVm is Vm {
     function deal(address, uint256) external;
     function getCode(string calldata) external returns (bytes memory);
+    function mockCall(address, bytes calldata, bytes calldata) external;
+    function clearMockedCalls() external;
 }
 
 /// @dev Adversarial transport scheduler, NOT a replacement for real CCIP evidence.
@@ -181,6 +183,19 @@ contract CrossChainTest {
         require(source.nativeCredits(USER) == 1e12 && source.totalLiability() == 100e6, "separate ledgers");
         source.claimNative(payable(USER));
         require(address(source).balance == 0 && usd.balanceOf(address(source)) == 100e6, "only fees withdrawn");
+    }
+    function testFrozenBeneficiaryClaimRetainsCredit() public {
+        uint256 id = create(); transport.deliver(0); fill(id); dispatch(id); transport.deliver(1);
+        vm.mockCall(address(usd), abi.encodeWithSelector(usd.transfer.selector, SOLVER, 100e6), abi.encode(false));
+        vm.expectRevert(); source.claim(id);
+        require(!source.getOrder(id).claimed && source.credits(SOLVER) == 100e6 && source.totalLiability() == 100e6, "claim rollback preserves creditor");
+        vm.clearMockedCalls(); source.claim(id);
+        require(usd.balanceOf(SOLVER) == 100e6, "claim recovers");
+    }
+    function testUnauthorizedSolverCannotSpendApprovedFunding() public {
+        uint256 id = create(); transport.deliver(0);
+        vm.prank(USER); vm.expectRevert(CCIPLane.Unauthorized.selector); destination.fillOrder(id);
+        require(destUsd.balanceOf(SOLVER) == 1000e6, "solver funding untouched");
     }
     function testFuzzCancellationScheduling(uint128 raw, bool cancelFirst, bool duplicates) public {
         uint128 principal = raw % 1000e6 + 1;

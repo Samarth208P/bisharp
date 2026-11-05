@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./cross.css";
 
 export const metadata: Metadata = {
   title: "Bisharp | Conditional orders",
