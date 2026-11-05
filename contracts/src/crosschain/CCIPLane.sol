@@ -28,7 +28,9 @@ abstract contract CCIPLane is CCIPReceiver, ReentrancyGuard {
 
     constructor(address router, uint64 local_, uint64 remote_) CCIPReceiver(router) {
         if (router.code.length == 0 || local_ == 0 || remote_ == 0 || local_ == remote_) revert InvalidConfiguration();
-        localSelector = local_; remoteSelector = remote_; pairingAuthority = msg.sender;
+        localSelector = local_;
+        remoteSelector = remote_;
+        pairingAuthority = msg.sender;
     }
 
     /// @dev One-time bootstrap only. No ongoing ability to change counterparties.
@@ -40,11 +42,21 @@ abstract contract CCIPLane is CCIPReceiver, ReentrancyGuard {
         emit PeerPaired(peer_);
     }
 
-    function _message(O.Envelope memory envelope, uint32 gasLimit) internal view returns (Client.EVM2AnyMessage memory) {
-        if (peer == address(0) || gasLimit < 200_000 || gasLimit > 1_000_000) revert InvalidConfiguration();
+    function _message(O.Envelope memory envelope, uint32 gasLimit)
+        internal
+        view
+        returns (Client.EVM2AnyMessage memory)
+    {
+        if (peer == address(0) || gasLimit < 200_000 || gasLimit > 1_000_000) {
+            revert InvalidConfiguration();
+        }
         return Client.EVM2AnyMessage({
-            receiver: abi.encode(peer), data: abi.encode(envelope),
-            tokenAmounts: new Client.EVMTokenAmount[](0), feeToken: address(0),
+            receiver: abi.encode(peer),
+            data: envelope.kind == O.Kind.Filled || envelope.kind == O.Kind.Cancelled
+                ? abi.encode(envelope.version, envelope.kind, envelope.id, envelope.termsHash)
+                : abi.encode(envelope),
+            tokenAmounts: new Client.EVMTokenAmount[](0),
+            feeToken: address(0),
             extraArgs: ExtraArgsCodec._getBasicEncodedExtraArgsV3(gasLimit, FinalityCodec.WAIT_FOR_FINALITY_FLAG)
         });
     }
@@ -71,9 +83,24 @@ abstract contract CCIPLane is CCIPReceiver, ReentrancyGuard {
     }
 
     function _ccipReceive(Client.Any2EVMMessage memory message) internal override nonReentrant {
-        if (peer == address(0) || message.sourceChainSelector != remoteSelector || message.sender.length != 32 || abi.decode(message.sender, (address)) != peer || message.destTokenAmounts.length != 0) revert InvalidMessage();
+        if (
+            peer == address(0) || message.sourceChainSelector != remoteSelector || message.sender.length != 32
+                || abi.decode(message.sender, (address)) != peer || message.destTokenAmounts.length != 0
+        ) revert InvalidMessage();
         if (received[message.messageId]) return;
-        O.Envelope memory envelope = abi.decode(message.data, (O.Envelope));
+        (uint8 version, O.Kind kind, uint256 id, bytes32 hash) =
+            abi.decode(message.data, (uint8, O.Kind, uint256, bytes32));
+        O.Envelope memory envelope;
+        if (kind == O.Kind.Filled || kind == O.Kind.Cancelled) {
+            if (message.data.length != 128) revert InvalidMessage();
+            envelope.version = version;
+            envelope.kind = kind;
+            envelope.id = id;
+            envelope.termsHash = hash;
+        } else {
+            if (message.data.length != 384) revert InvalidMessage();
+            envelope = abi.decode(message.data, (O.Envelope));
+        }
         if (envelope.version != O.VERSION || envelope.id == 0) revert InvalidMessage();
         received[message.messageId] = true;
         _receiveEnvelope(envelope);

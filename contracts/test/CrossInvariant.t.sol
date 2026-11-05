@@ -15,33 +15,60 @@ contract CrossHandler {
     TestToken public usd;
     TestToken public destUsd;
     address constant RECIPIENT = address(0xCAFE);
+
     constructor(SourceEscrow s, DestinationExecutor d, MockTransport r, TestToken u, TestToken v) {
-        source = s; destination = d; transport = r; usd = u; destUsd = v;
-        usd.approve(address(s), type(uint256).max); destUsd.approve(address(d), type(uint256).max);
+        source = s;
+        destination = d;
+        transport = r;
+        usd = u;
+        destUsd = v;
+        usd.approve(address(s), type(uint256).max);
+        destUsd.approve(address(d), type(uint256).max);
     }
+
     function create(uint64 seed) external {
-        usd.faucet(); destUsd.faucet();
-        O.Terms memory t = O.Terms(address(this), RECIPIENT, address(this), uint64(block.timestamp + 1 hours), uint128(uint256(seed) % 100e6 + 1), 100e6, 0.04 ether, 2100e18);
+        usd.faucet();
+        destUsd.faucet();
+        O.Terms memory t = O.Terms(
+            address(this),
+            RECIPIENT,
+            address(this),
+            uint64(block.timestamp + 1 hours),
+            uint128(uint256(seed) % 100e6 + 1),
+            100e6,
+            0.04 ether,
+            2100e18
+        );
         try source.createOrder{value: 1e12}(t, 400_000) {} catch {}
     }
+
     function relay(uint64 seed) external {
-        uint256 count = transport.count(); if (count == 0) return;
+        uint256 count = transport.count();
+        if (count == 0) return;
         try transport.deliver(uint256(seed) % count) {} catch {}
     }
+
     function cancel(uint64 seed) external {
-        uint256 count = source.orderCount(); if (count == 0) return;
+        uint256 count = source.orderCount();
+        if (count == 0) return;
         try source.requestCancel{value: 1e12}(uint256(seed) % count + 1, 400_000) {} catch {}
     }
+
     function fill(uint64 seed) external {
-        uint256 count = source.orderCount(); if (count == 0) return;
+        uint256 count = source.orderCount();
+        if (count == 0) return;
         try destination.fillOrder(uint256(seed) % count + 1) {} catch {}
     }
+
     function receipt(uint64 seed) external {
-        uint256 count = source.orderCount(); if (count == 0) return;
+        uint256 count = source.orderCount();
+        if (count == 0) return;
         try destination.dispatchReceipt{value: 1e12}(uint256(seed) % count + 1, 300_000) {} catch {}
     }
+
     function claim(uint64 seed) external {
-        uint256 count = source.orderCount(); if (count == 0) return;
+        uint256 count = source.orderCount();
+        if (count == 0) return;
         try source.claim(uint256(seed) % count + 1) {} catch {}
     }
 }
@@ -54,6 +81,7 @@ contract CrossInvariantTest {
     TestToken eth;
     CrossHandler handler;
     address[] targets;
+
     function setUp() public {
         vm.warp(1_000_000);
         usd = new TestToken("Source", "USD", 6);
@@ -61,13 +89,34 @@ contract CrossInvariantTest {
         eth = new TestToken("Output", "ETH", 18);
         MockTransport transport = new MockTransport();
         source = new SourceEscrow(address(usd), address(transport), 1, 2, 1000e6, 100000e6);
-        destination = new DestinationExecutor(DestinationExecutor.Config(address(destUsd), address(eth), address(transport), 2, 1, address(new MockSwap()), 3000, address(new MockFeed()), 3600, address(0), 0));
-        source.pairPeer(address(destination)); destination.pairPeer(address(source));
-        transport.set(address(source), 1); transport.set(address(destination), 2);
+        destination = new DestinationExecutor(
+            DestinationExecutor.Config(
+                address(destUsd),
+                address(eth),
+                address(transport),
+                2,
+                1,
+                address(new MockSwap()),
+                3000,
+                address(new MockFeed()),
+                3600,
+                address(0),
+                0
+            )
+        );
+        source.pairPeer(address(destination));
+        destination.pairPeer(address(source));
+        transport.set(address(source), 1);
+        transport.set(address(destination), 2);
         handler = new CrossHandler(source, destination, transport, usd, destUsd);
-        vm.deal(address(handler), 100 ether); targets.push(address(handler));
+        vm.deal(address(handler), 100 ether);
+        targets.push(address(handler));
     }
-    function targetContracts() external view returns (address[] memory) { return targets; }
+
+    function targetContracts() external view returns (address[] memory) {
+        return targets;
+    }
+
     function invariantSolvencyAndNoPrematureOrDoubleSettlement() public view {
         uint256 liabilities;
         uint256 credit;
@@ -77,7 +126,9 @@ contract CrossInvariantTest {
             O.Record memory d = destination.getOrder(id);
             if (!s.claimed) liabilities += s.terms.principal;
             if (s.state == O.State.Filled) require(d.state == O.State.Filled, "payment requires destination fill");
-            if (s.state == O.State.Cancelled) require(d.state == O.State.Cancelled, "refund requires destination cancellation");
+            if (s.state == O.State.Cancelled) {
+                require(d.state == O.State.Cancelled, "refund requires destination cancellation");
+            }
             if (!s.claimed && (s.state == O.State.Filled || s.state == O.State.Cancelled)) credit += s.terms.principal;
             if (d.state == O.State.Filled) filled++;
         }

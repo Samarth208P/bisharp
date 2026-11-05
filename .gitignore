@@ -11,3 +11,4 @@ broadcast/
 .tools/
 playwright-report/
 test-results/
+deployments/local-test-results.json

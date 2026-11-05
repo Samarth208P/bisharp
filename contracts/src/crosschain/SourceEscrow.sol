@@ -23,19 +23,31 @@ contract SourceEscrow is CCIPLane {
     error UnsupportedToken();
     error ConflictingOutcome();
 
-    constructor(address token, address router, uint64 local_, uint64 remote_, uint128 max_, uint256 cap_) CCIPLane(router, local_, remote_) {
+    constructor(address token, address router, uint64 local_, uint64 remote_, uint128 max_, uint256 cap_)
+        CCIPLane(router, local_, remote_)
+    {
         if (token.code.length == 0 || max_ == 0 || cap_ < max_) revert InvalidConfiguration();
-        inputToken = IERC20(token); maxPrincipal = max_; liabilityCap = cap_;
+        inputToken = IERC20(token);
+        maxPrincipal = max_;
+        liabilityCap = cap_;
     }
 
-    function getOrder(uint256 id) external view returns (O.Record memory) { return orders[id]; }
-    function ownerOrderCount(address owner) external view returns (uint256) { return ownerIds[owner].length; }
+    function getOrder(uint256 id) external view returns (O.Record memory) {
+        return orders[id];
+    }
+
+    function ownerOrderCount(address owner) external view returns (uint256) {
+        return ownerIds[owner].length;
+    }
+
     function ownerOrders(address owner, uint256 offset, uint256 limit) external view returns (uint256[] memory ids) {
         if (limit > 50) revert InvalidTerms();
         uint256 length = ownerIds[owner].length;
         uint256 size = offset >= length ? 0 : (length - offset < limit ? length - offset : limit);
         ids = new uint256[](size);
-        for (uint256 i; i < size; ++i) ids[i] = ownerIds[owner][length - 1 - offset - i];
+        for (uint256 i; i < size; ++i) {
+            ids[i] = ownerIds[owner][length - 1 - offset - i];
+        }
     }
 
     function _envelope(uint256 id, O.Kind kind) internal view returns (O.Envelope memory) {
@@ -55,7 +67,13 @@ contract SourceEscrow is CCIPLane {
     }
 
     function createOrder(O.Terms calldata terms, uint32 gasLimit) external payable nonReentrant returns (uint256 id) {
-        if (terms.owner != msg.sender || terms.recipient == address(0) || terms.recipient == peer || terms.solver == address(0) || terms.principal == 0 || terms.principal > maxPrincipal || terms.amountIn == 0 || terms.minOutput == 0 || terms.maxPrice == 0 || terms.deadline < block.timestamp + 5 minutes || terms.deadline > block.timestamp + 30 days || totalLiability + terms.principal > liabilityCap) revert InvalidTerms();
+        if (
+            terms.owner != msg.sender || terms.recipient == address(0) || terms.recipient == peer
+                || terms.solver == address(0) || terms.principal == 0 || terms.principal > maxPrincipal
+                || terms.amountIn == 0 || terms.minOutput == 0 || terms.maxPrice == 0
+                || terms.deadline < block.timestamp + 5 minutes || terms.deadline > block.timestamp + 30 days
+                || totalLiability + terms.principal > liabilityCap
+        ) revert InvalidTerms();
         uint256 beforeBalance = inputToken.balanceOf(address(this));
         inputToken.safeTransferFrom(msg.sender, address(this), terms.principal);
         if (inputToken.balanceOf(address(this)) - beforeBalance != terms.principal) revert UnsupportedToken();
@@ -85,7 +103,9 @@ contract SourceEscrow is CCIPLane {
 
     function _receiveEnvelope(O.Envelope memory envelope) internal override {
         O.Record storage o = orders[envelope.id];
-        if (o.state == O.State.Unknown || envelope.termsHash != o.termsHash || O.hash(address(this), peer, localSelector, remoteSelector, envelope.id, envelope.terms) != o.termsHash) revert InvalidMessage();
+        // The authenticated receipt commits to the source's already-stored domain and terms.
+        // Resending the full immutable Terms would add 256 bytes without adding authority.
+        if (o.state == O.State.Unknown || envelope.termsHash != o.termsHash) revert InvalidMessage();
         O.State result;
         if (envelope.kind == O.Kind.Filled) result = O.State.Filled;
         else if (envelope.kind == O.Kind.Cancelled) result = O.State.Cancelled;
