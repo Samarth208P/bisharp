@@ -6,15 +6,21 @@
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
-    "typecheck": "tsc --noEmit",
-    "contracts:build": "forge build",
-    "contracts:test": "forge test -vv",
+    "typecheck": "next typegen && tsc --noEmit",
+    "contracts:build": "node scripts/forge.mjs build",
+    "contracts:test": "node scripts/forge.mjs test -vv",
     "abi": "node scripts/export-abi.mjs",
     "smoke:local": "node scripts/smoke-local.mjs",
     "test:ui": "node --experimental-strip-types tests/input.test.ts",
     "demo:local": "node scripts/local-demo.mjs",
     "test:report": "node scripts/test-report.mjs",
-    "check:public-build": "node scripts/check-public-build.mjs"
+    "check:public-build": "node scripts/check-public-build.mjs",
+    "verify:routes": "node --experimental-strip-types scripts/verify-route.ts",
+    "format": "prettier --write src scripts tests package.json tsconfig.json",
+    "format:check": "prettier --check src scripts tests package.json tsconfig.json"
+  },
+  "engines": {
+    "node": ">=22.16.0"
   },
   "dependencies": {
     "@openzeppelin/contracts": "5.4.0",
@@ -27,6 +33,7 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "prettier": "3.6.2",
     "typescript": "^5.9.0"
   }
 }

@@ -1,110 +1,132 @@
 # Bisharp
 
-A Next.js frontend and Foundry contracts for conditional asset orders on **Ethereum Sepolia (11155111)**. Based on [PRD.md](PRD.md), with a deliberately smaller, single-chain testnet implementation.
+Conditional cross-chain orders with **Next.js, Foundry, Chainlink CCIP 2.0 and Uniswap v3**. User principal stays in a source escrow; a designated solver supplies destination tokens and swaps them to the user's fixed recipient. An authenticated terminal receipt allocates either solver payment or a user refund on the source.
 
-## Implemented scope
+**Current status: locally tested release candidate, not production-audited.** Public deployment and publishing are deferred at the user's request. The working two-node local demo uses real Uniswap bytecode, a fixed local oracle and an explicitly unauthenticated transport fixture. It does not establish live CCIP delivery or prize eligibility. Funded Ethereum/OP Sepolia wallets have not been spent by this work.
 
-- Connect an injected Ethereum wallet and switch to Sepolia.
-- Mint free, **unbacked** 6-decimal bUSD and 18-decimal bETH test tokens. Neither token represents money, wrapped ETH, or a redeemable asset.
-- Approve the exact input amount, review immutable terms, and escrow bUSD.
-- Use a Chainlink ETH/USD feed to enforce `price <= maxPrice`, positive/fresh/nonfuture answers, and a fixed minimum output.
-- Any funded solver can approve and deliver the exact bETH output directly to the fixed recipient. Delivery and credit allocation are atomic.
-- Owners cancel open orders; anyone can close them at expiry. Cancellation allocates a refund credit. Fill and cancel are mutually exclusive.
-- Claim refund or solver credits in a separate transaction to the fixed beneficiary. No administrator can withdraw escrow.
-- Simulate contract writes before wallet prompts; persist recent transaction hashes and recover pending receipts after reload; poll on-chain state with stale-data handling.
+## Run the complete local demo
 
-**Not implemented:** cross-chain transport/CCIP, Whitechain, Uniswap routing, signed solver quotes, keeper automation, production stablecoins, native ETH output, deployment/indexer services, or production security assurance. Single-chain cancellation does not demonstrate the PRD's asynchronous cross-chain safety model. The test token output tracks an ETH/USD *condition*, not a redeemable ETH asset or guaranteed market execution. No protocol fee; users and solvers pay their own gas. All contracts are non-upgradeable and there is no admin.
-
-## Run the frontend
-
-Requirements: Node.js >=20.9 and npm. The lockfile pins the installed dependency graph.
+Requirements: Node.js **22.16+**, npm, [Foundry](https://getfoundry.sh/introduction/installation/) (tested 1.5.1). Scripts locate Foundry under the usual user installation directory on Windows and Unix. Solidity 0.8.28, Cancun, optimizer 200 runs, via-IR. No private key is needed for local development.
 
 ```powershell
 npm ci
-Copy-Item .env.example .env.local
+npm run contracts:build
+npm run abi
+npm run demo:local
+```
+
+Keep that terminal running. The command refuses occupied ports, starts two isolated Anvil nodes, deploys and pairs contracts using Foundry, seeds a real v3 pool, runs a complete settlement/refund smoke test, then relays new local messages continuously. It writes the public local route to Git-ignored `.env.local`. Ctrl+C stops the fixture. RPCs:
+
+| Network | EVM chain ID | CCIP selector in local fixture | RPC |
+| --- | ---: | ---: | --- |
+| Local source | 31337 | 1 | `http://127.0.0.1:8545` |
+| Local destination | 31338 | 2 | `http://127.0.0.1:9545` |
+
+In another terminal:
+
+```powershell
 npm run dev
 ```
 
-Open <http://127.0.0.1:3000>. The initial interface works without deployment and clearly disables on-chain operations. After deployment, set `NEXT_PUBLIC_ESCROW_ADDRESS` in `.env.local` and restart Next.js. The app reads token/feed addresses from the escrow rather than trusting separate frontend addresses. All configured RPC endpoints must support Ethereum Sepolia. `NEXT_PUBLIC_*` values are public: never put private RPC secrets or wallet keys there.
+Open <http://127.0.0.1:3000>. Connect a development wallet, click **Set 10 local ETH on both chains**, and mint source/destination bUSD under Funding & recovery. The local gas faucet never accesses public RPCs or wallet keys. Use a separate development wallet; public testnet ETH is not needed.
+
+1. Enter source principal, the solver's destination input, minimum WETH output, trigger, expiry and optional recipient/solver. Blank recipient/solver defaults to your wallet.
+2. Review exact identities and amounts. Approve exact source bUSD, review again, then create. Each action names its signing chain and switches the wallet when needed.
+3. In All orders / solver, use the designated solver wallet. Approve destination bUSD, then execute the Uniswap fill. The local relayer registers orders, but does **not** choose or fund fills.
+4. Send the stored terminal receipt, then claim the source payment. The destination fill persists if receipt dispatch fails.
+5. For a separate order, request cancellation, wait for destination closure, send its receipt, then claim the refund. A fill can win a cancellation race. No source timeout-only refund exists.
+
+The default local oracle price is exactly $2,000. bUSD is unbacked; local WETH wraps simulated Anvil ETH. The local transport is **not secure against a malicious local caller** and both transport/oracle fixtures reject public-chain deployment. In-app local transaction/address links open a read-only development inspector. Public CCIP links are only used for public routes.
+
+## Multiple testnet routes
+
+The contracts bind immutable terms to source/destination addresses, both selectors, order ID and protocol version. Settlement logic contains no hardcoded public network. The UI has presets for Ethereum Sepolia, OP Sepolia, Arbitrum Sepolia and Base Sepolia. **Presets are compatibility configuration, not verified deployments or live lane evidence.** Mainnets and mixed local/public routes are rejected by this testnet interface.
+
+Configure paired deployments using `.env.local`:
+
+```dotenv
+NEXT_PUBLIC_ENABLE_LOCAL=false
+NEXT_PUBLIC_ROUTES_JSON=[{"id":"eth-op","sourceChainId":11155111,"destinationChainId":11155420,"escrow":"0xYOUR_SOURCE_CONTRACT","executor":"0xYOUR_DESTINATION_CONTRACT"}]
+```
+
+Replace the addresses with actual deployments. Add more entries for independently deployed routes; do not reuse a contract paired to another counterpart. Custom RPCs use the public environment names in `.env.example`. `NEXT_PUBLIC_*` values are browser-visible and must never contain secrets. The simpler `NEXT_PUBLIC_SOURCE_ADDRESS`/`NEXT_PUBLIC_DESTINATION_ADDRESS` pair selects Ethereum Sepolia → OP Sepolia when the routes array is absent.
 
 ```powershell
+npm run verify:routes
+```
+
+This read-only check verifies chain IDs, pairing, both selectors, router support in both directions, finality-required receiver policy and a fresh price. The frontend checks pairing/selectors independently and disables writes when they disagree. Each RPC is tracked separately, so a destination read outage does not prevent an earned source claim. Ten-order owner/global pages provide access to older orders.
+
+## Architecture and safety boundaries
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant S as Source escrow
+    participant C as CCIP
+    participant D as Destination executor
+    participant V as Uniswap v3
+    U->>S: Escrow principal + separate message fee
+    S->>C: CREATE (immutable terms)
+    C->>D: Authenticated registration
+    Note over D: OPEN → FILLED or CANCELLED, permanently
+    D->>V: Solver funds exact-input swap
+    V->>U: At least fixed minimum output
+    Note over D: Outcome stored before dispatch
+    D->>C: Retryable terminal receipt
+    C->>S: Authenticate matching terms hash
+    S->>S: Allocate exactly one beneficiary
+    U->>S: Trigger claim to fixed beneficiary
+```
+
+- One-time peer pairing burns pairing authority. No upgrade, arbitrary principal rescue, recipient rewriting or ongoing admin payout authority.
+- CCIP receiver validates router, sender, source selector, protocol version, payload shape, order and terms hash. V2 receiver policy and V3 extra args require full finality; no faster-than-finality mode.
+- CREATE/CANCEL can arrive out of order. Cancellation tombstones persist; late CREATE cannot reopen a closed destination order.
+- An open source order is cancellable by its owner. At expiry anyone may request cancellation, but only destination CANCELLED makes a refund claimable. Source time alone never proves non-execution.
+- Destination swaps use a fixed router/factory/pool/fee tier, a positive fresh nonfuture price, the solver's exact funding, immutable minimum output and deadline, balance-delta checks and cleared allowances. A reverted attempt changes no balances or terminal state.
+- Terminal receipts are 128 bytes, versus 384 for CREATE/CANCEL. They bind the source's stored terms hash, preserve replay/idempotence checks, and cannot choose a beneficiary. Contradictory authenticated outcomes revert rather than allocate another credit.
+- Principal liabilities, aggregate token credits and native fee-change credits have separate accounting. Failed token claims retain the same beneficiary and liability. Per-order and per-route exposure caps bound deposits.
+- The solver and source payout use the same fixed EVM address. Terms are manually agreed and signed by order creation; a separate cryptographically signed solver-quote service is not implemented. A quote or eligible trigger never guarantees a fill.
+
+The selected public testnet script omits a sequencer-uptime feed explicitly. The executor supports outage/grace checks and tests them, but a production L2 route must configure a reviewed uptime policy. Default test assets, feed policies and liquidity are not approved for real funds. Native fee quotes exclude separate transaction gas; reviewed fee funding includes a 20% buffer, with unused change claimable. Stored outcomes survive transport fee exhaustion, while recovery can remain pending indefinitely during an outage.
+
+## Tests, gas and reproducibility
+
+```powershell
+npm run contracts:test
+npm run test:ui
 npm run typecheck
+npm run format:check
 npm run build
+npm run check:public-build
 ```
 
-## Foundry
-
-Install [Foundry](https://getfoundry.sh/introduction/installation/). Solidity dependencies use the exact OpenZeppelin version from npm; no `forge install` is needed. If Forge is not on PATH on Windows, use `& "$env:USERPROFILE\.foundry\bin\forge.exe"` in place of `forge`.
+Extended deterministic campaign (PowerShell; ensure `forge` is on PATH, or use `node scripts/forge.mjs`):
 
 ```powershell
-forge build
-forge test -vv
-npm run abi
+$env:FOUNDRY_FUZZ_RUNS = '10000'
+$env:FOUNDRY_INVARIANT_RUNS = '1024'
+$env:FOUNDRY_INVARIANT_DEPTH = '128'
+node scripts/forge.mjs test --fuzz-seed 0x6d756d626169 --json > deployments/local-test-results.json
+node scripts/test-report.mjs deployments/local-test-results.json 0x6d756d626169
 ```
 
-Tests cover happy settlement, cancel/fill exclusion, double claims, unauthorized cancellation, the exact expiry boundary, invalid/stale/future oracle data, failed output funding atomicity, and fuzzed principal conservation. A stateful handler schedules create/fill/cancel/claim calls and checks escrow balance and exact liability accounting.
+Recorded results: [reports/foundry-results.json](reports/foundry-results.json), [reports/GAS.md](reports/GAS.md), [.gas-snapshot](.gas-snapshot), [deployments/local-smoke-summary.json](deployments/local-smoke-summary.json). Raw test logs are excluded from Git; the summary contains no keys. Tests include real official Uniswap pool bytecode, fuzzed 6/18-decimal amount conservation and output, adversarial message ordering/replay/races, stalled return receipts, invalid oracle answers, sequencer recovery boundaries, frozen claims, token callbacks, exposure caps and source solvency. Frontend input/route tests reject silent rounding, invalid identities, overflows, same-chain/mainnet/duplicate/mixed routes.
 
-## Deploy to Sepolia
+The build checker verifies that locally configured deployment keys are absent from public static assets; it never prints their values. This is a targeted check, not a substitute for independent review. Seven frontend/API tests cover inputs, routes and the local faucet boundary. A CI workflow is prepared in `.github/workflows/check.yml` but has not run remotely because the repository is not published.
 
-A disposable testing wallet has been generated with `cast wallet new` and stored in the Git-ignored `.env` as `SEPOLIA_PRIVATE_KEY` and `SEPOLIA_DEPLOYER_ADDRESS`. The key is server/deployment-only and must never use a `NEXT_PUBLIC_` prefix. Fund its public address with Ethereum Sepolia ETH. Foundry automatically loads `.env`, and the deployment script uses this key when present:
+## Public testnet deployment — deferred
 
-```powershell
-# Simulate with the disposable testnet key from .env.
-forge script contracts/script/Deploy.s.sol:Deploy --rpc-url sepolia
+`contracts/script/DeployCross.s.sol` prepares Ethereum Sepolia → OP Sepolia using official CCIP routers, OP's canonical v3 factory/position manager/WETH, the verified ETH/USD proxy and a locally deployed unchanged official original SwapRouter artifact. The original router ABI has a deadline and must **not** be replaced with SwapRouter02's different ABI. The destination script seeds at most 0.03 OP Sepolia ETH of test liquidity with minimum-amount protection. It checks chain IDs, deployed dependencies and feed freshness. See [deployments/README.md](deployments/README.md).
 
-# Deploy after the address is funded and the simulation passes.
-forge script contracts/script/Deploy.s.sol:Deploy --rpc-url sepolia --broadcast
-```
+No broadcast is needed for local work. When public deployment is explicitly resumed, simulate first, verify manifests/code and selected lane version/finality, deploy, pair both sides once, and run authenticated CREATE/FILLED/CANCELLED round trips before claiming live integration. The disposable testnet key is in Git-ignored `.env`; the script supports an explicit key there or an encrypted keystore as documented by the original single-chain script. Never publish it or use it with real funds. A simulation's predicted addresses are not deployment evidence.
 
-No public deployment has been performed. This wallet is for testnet use only. The `.env` file is local and is not included when cloning the repository.
+## Partner requirements
 
-For an encrypted-keystore alternative, remove `SEPOLIA_PRIVATE_KEY` from `.env` and the shell environment, then import interactively:
+Targets: **Chainlink CCIP 2.0** and **Uniswap Foundation**. See [docs/PARTNER_REQUIREMENTS.md](docs/PARTNER_REQUIREMENTS.md), [FEEDBACK.md](FEEDBACK.md), and [docs/RESEARCH_REVIEW.md](docs/RESEARCH_REVIEW.md).
 
-```powershell
-cast wallet import bisharp-sepolia --interactive
-```
+- Chainlink integration code is implemented and tested locally. Actual CCIP 2.0 on-chain state-change/message evidence remains outstanding; the local mock cannot satisfy it.
+- Uniswap v3 integration is implemented and exercised against official bytecode, including the two-node demo. `FEEDBACK.md` is present. A public open-source GitHub repository and the developer feedback form linking it remain deferred, not falsely marked complete.
+- Public hosting, explorer source verification, event eligibility, a recorded demo and submission are separate remaining tasks. No partner form, Git push, public deployment or competition submission was performed.
 
-Set shell variables for Foundry (Next.js `.env.local` is not automatically loaded by Forge):
-
-```powershell
-$env:SEPOLIA_RPC_URL = 'https://ethereum-sepolia-rpc.publicnode.com'
-$env:PRICE_FEED = '0x694AA1769357215DE4FAC081bf1f309aDC325306'
-$env:MAX_PRICE_AGE = '3600'
-
-# First simulate; no transaction is broadcast.
-forge script contracts/script/Deploy.s.sol:Deploy --rpc-url sepolia --account bisharp-sepolia
-
-# Broadcast using the encrypted keystore after reviewing the simulation.
-forge script contracts/script/Deploy.s.sol:Deploy --rpc-url sepolia --account bisharp-sepolia --broadcast
-```
-
-`PRICE_FEED` is a **candidate** Sepolia ETH/USD proxy; check the current [official feed directory](https://docs.chain.link/data-feeds/price-feeds/addresses) and verify its identity on your RPC. The script verifies the Sepolia chain ID, deployed feed code, 8 decimals, a positive answer, and freshness before broadcasting. Code and decimals alone do not establish feed identity. `MAX_PRICE_AGE=3600` is a demo policy, not a production heartbeat recommendation; deployment fails if the current feed exceeds it.
-
-The script creates bUSD, bETH, and Bisharp, and writes `deployments/sepolia.json`. **A simulation also writes predicted addresses.** Only configure the frontend after a successful broadcast and receipt/code verification. Record transaction hashes and feed/configuration evidence in your deployment manifest. See [deployments/README.md](deployments/README.md).
-
-## Try the full lifecycle
-
-1. Configure the deployed escrow, open the app, connect a wallet, and switch to Sepolia.
-2. Expand “Need test tokens?” and mint bUSD. Keep native Sepolia ETH for gas.
-3. Set principal, a nonzero bETH minimum, a trigger, expiry, and optional recipient. Review, approve exact bUSD, then create the order.
-4. With a separate solver wallet, mint bETH. Open Solver workspace, approve that order's bETH output, and fill when the fresh trigger is eligible. Claim the solver's earned bUSD. A solver cannot fill to itself: the recipient's balance must actually increase. For a one-wallet demo, create an order with a different recipient address.
-5. For a separate open order, cancel as its owner. Claim the returned bUSD from “Your test funds.”
-6. Reload to recover recent transaction links. An unconfirmed transaction may still complete: inspect its explorer link before retrying.
-
-The interface loads the **latest 50 global orders** and displays that limit. Older orders are not included in the visible locked total. The aggregate claim balance covers all orders. Use `getOrder(id)`, `cancelOrder(id)` and `claim(beneficiary)` via the contract for older orders; a paginated owner index is future work. One RPC-confirmed receipt is used for testnet UX, not a production finality guarantee. Wallet connection supports the browser's injected provider; WalletConnect/mobile deep links are not included.
-
-## Files
-
-- `src/app/page.tsx`: wallet, order review, lifecycle and solver interface.
-- `src/lib/abi.ts`: ABI generated from the compiled Foundry artifact.
-- `contracts/src/Bisharp.sol`: escrow, oracle eligibility, settlement, credits.
-- `contracts/src/TestToken.sol`: unrestricted demo faucet tokens.
-- `contracts/test/Bisharp.t.sol`: unit, fuzz and stateful invariant tests.
-- `contracts/test/Adversarial.t.sol`: taxed transfers, frozen claims and reentrant token callbacks.
-- `contracts/script/Deploy.s.sol`: Sepolia deployment and manifest output.
-
-For a local viem/ABI integration smoke test, start `anvil --host 127.0.0.1 --chain-id 31337` in another terminal, then run `forge build` and `npm run smoke:local`. The script deploys locally, simulates and submits transactions with Anvil's unlocked development accounts, checks delivery and both claim paths, and refuses any chain other than local 31337. It does not configure the Sepolia-only frontend or deploy publicly.
-
-Implementation references: [Next.js App Router](https://nextjs.org/docs/app/getting-started/installation), [viem contract simulation](https://viem.sh/docs/contract/simulateContract), [Chainlink Data Feeds API](https://docs.chain.link/data-feeds/api-reference), and [OpenZeppelin Contracts 5.4.0](https://github.com/OpenZeppelin/openzeppelin-contracts/tree/v5.4.0). The deployed source is compiled with Solidity 0.8.28; libraries are pinned by `package-lock.json`.
-
-This prototype is unaudited. Use test assets only. It makes no cross-chain, leaderboard, security-audit, or production-readiness claims.
+The source PRD and research are supporting design documents, not guarantees of implementation completeness. [history.md](history.md) records actual progress. The earlier `Bisharp.sol` single-chain implementation remains only as a tested reference; the main UI and new contracts use the cross-chain lifecycle.

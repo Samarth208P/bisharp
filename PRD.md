@@ -1,6 +1,6 @@
 # Bisharp PRD v2: Conditional Cross-Chain Orders
 
-Status: proposed design; implementation and deployment unverified. Updated: 2026-11-05 (Asia/Calcutta).
+Status: design reference with a locally tested cross-chain release candidate. Public deployment, live CCIP execution and production security remain unverified. Implementation evidence and scope differences are in README.md and reports/. Updated: 2026-11-06 (Asia/Calcutta).
 
 The input working copy, including its existing edits, is preserved in [PRD.original.md](PRD.original.md). See [PRD_REVIEW.md](PRD_REVIEW.md) for findings and [history.md](history.md) for work history.
 
@@ -16,7 +16,7 @@ Initial user: a DeFi user purchasing one destination asset with source stablecoi
 
 One verified bidirectional messaging lane, one source stablecoin, one destination input stablecoin, one output asset, one vetted Uniswap v3 router/pool, fixed recipients, full fills only, and a disclosed solver operator. Exclude partial fills, arbitrary routers/calldata, receipt minting, transferable orders, leverage, native-asset output, v4 hooks and public LP deposits.
 
-Candidate route: Whitechain Sepolia -> Arbitrum Sepolia. BLOCKED until actual messaging support is verified in both directions. EVM compatibility is insufficient. If unavailable, demonstrate a supported testnet pair and a separate Whitechain escrow flow, accurately labeled. Do not replace CCIP with an unauthenticated relayer while retaining its security claims.
+Selected testnet route: Ethereum Sepolia -> OP Sepolia, following user direction and funding. Read-only Foundry calls verified router support in both directions; public round-trip execution remains deferred at the user's request. The contracts and route configuration support other EVM testnet pairs, with separate deployments and lane verification required. Whitechain is no longer a selected prize target. The two-node local demo explicitly labels its unauthenticated transport as a fixture and makes no live CCIP security claim.
 
 All testnet assets must be labeled test assets. The v1 USDT address is an unverified candidate, not an approved deployment address.
 
@@ -26,11 +26,11 @@ Maintain a versioned deployment manifest with evidence URLs, verification date, 
 
 | Component | Required verification | Current status |
 | --- | --- | --- |
-| Source network | Chain ID, RPC, explorer, native gas currency, finality policy | Whitechain publicly documents Sepolia ID 1874 and WBT gas; RPC not tested here |
-| CCIP both directions | Selectors, routers, enabled lanes, verifier/finality settings, fee assets, callback limits, successful message IDs | Unverified; blocker |
+| Source network | Chain ID, RPC, explorer, native gas currency, finality policy | Ethereum Sepolia 11155111 and OP Sepolia 11155420; read-only RPC checks completed; full-finality CCIP policy implemented |
+| CCIP both directions | Selectors, routers, enabled lanes, verifier/finality settings, fee assets, callback limits, successful message IDs | Official routers support both directions; pinned CCIP 2.0 implementation tested locally; live message evidence pending |
 | Source stablecoin | Exact address, deployed code, decimals, issuer/provenance, approval/transfer behavior | Unverified |
 | Destination assets | Addresses, decimals, code, liquidity and supported transfer behavior | Unverified |
-| Uniswap v3 | Router ABI/address/version, factory, pool, fee tier, usable liquidity | Unverified |
+| Uniswap v3 | Router ABI/address/version, factory, pool, fee tier, usable liquidity | Official artifact swaps and two-node local liquidity tested; OP factory/position-manager bindings read-only verified; public pool not deployed |
 | Feeds | Proxy addresses, pair orientation, decimals, heartbeat/deviation, staleness threshold, sequencer feed and grace period | Unverified |
 | Competition | Named event and official track URLs, deadline, eligibility and prize terms | No event URL supplied |
 
@@ -152,7 +152,7 @@ Monitor message and receipt age, solver inventory, fee reserves, execution failu
 | Concurrent fills and fill/cancel race | Exactly one destination terminal outcome |
 | Reorg/stale indexer | Pinned finality policy followed; UI cannot invent final settlement |
 
-Use Foundry unit, fuzz and stateful invariant tests with adversarial message scheduling and actual balance/credit assertions. Fork-test pinned tokens/router/feeds and integration-test the selected SDK. Simulator success alone does not prove lane feasibility. Collect transaction hashes, message IDs, manifests, commit and test results. No implementation exists yet; no runtime checks are currently passed.
+Use Foundry unit, fuzz and stateful invariant tests with adversarial message scheduling and actual balance/credit assertions. Fork-test pinned tokens/router/feeds and integration-test the selected SDK. Simulator success alone does not prove lane feasibility. Collect transaction hashes, message IDs, manifests, commit and test results. Cross-chain contracts and the main frontend now exist: reports/ records local fuzz/invariant, real-v3-bytecode and two-node integration evidence. Public CCIP execution and production release gates remain outstanding. See README.md for the implemented subset and limitations, including manually agreed solver terms.
 
 ## 11. Delivery and release gates
 

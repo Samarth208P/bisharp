@@ -6,7 +6,7 @@ User-selected targets: **Chainlink CCIP 2.0** and **Uniswap Foundation**. The su
 
 - Required: CCIP used inside smart contracts to cause an on-chain state change. Price-feed reads alone do not qualify.
 - Intended evidence: authenticated CREATE from Ethereum Sepolia registers an order on OP Sepolia; destination FILLED/CANCELLED receipts allocate exactly one source entitlement. Retain source transactions, CCIP message IDs, destination execution transactions, contract addresses, verified source and configuration.
-- Status at baseline: **not met**. The existing single-chain prototype has no CCIP integration. Implementation and evidence must be added before changing this status.
+- Current status: **implemented and tested locally; public criterion not yet met**. SourceEscrow and DestinationExecutor use pinned CCIP 2.0 contracts, V3 arguments and authenticated terminal receipts. Real public CCIP execution evidence remains outstanding; the user requested local completion before publishing/deploying. The local transport fixture cannot satisfy the on-chain CCIP requirement.
 - CRE is a separate track; no CRE workflow is claimed.
 
 ## Uniswap Foundation: Build with Uniswap
@@ -15,7 +15,7 @@ User-selected targets: **Chainlink CCIP 2.0** and **Uniswap Foundation**. The su
 - The live page adds requirements missing from the supplied JSON: a public open-source GitHub repository, `FEEDBACK.md`, and a completed [Uniswap Developer Feedback Form](https://developers.uniswap.org/hackathon-feedback) linking that file. README must point to the integration contracts/code. Form submission remains outstanding until actually sent with the public repository URL.
 - Intended integration: solver funds one fixed v3 exact-input route; immutable minimum output and recipient are enforced by the destination executor. No arbitrary router or calldata.
 - Intended evidence: pinned official router/factory/pool addresses, an actual swap transaction with token balance deltas, repeatable fork/integration tests, and a demo showing the output reaching the user.
-- Status at baseline: **not met**. Direct demo-token transfers are not Uniswap swaps. The supplied JSON has empty detailed requirements for Uniswap; verify the live page rather than treating an empty array as no obligations.
+- Current status: **integration exercised locally against official protocol bytecode**. RealV3 tests and the two-node demo execute actual pool swaps. FEEDBACK.md exists. Public repository publication and the feedback form remain deferred. The supplied JSON has empty detailed requirements for Uniswap; the live page's additional obligations remain mandatory.
 
 ## Submission evidence that cannot be inferred
 
