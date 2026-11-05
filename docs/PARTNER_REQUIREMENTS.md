@@ -2,11 +2,16 @@
 
 User-selected targets: **Chainlink CCIP 2.0** and **Uniswap Foundation**. The supplied prize JSON is supporting material; current authoritative rules are the [ETHGlobal Mumbai prize page](https://ethglobal.com/events/mumbai/prizes), checked 2026-11-05. Recheck at submission time. Prize selection, eligibility and judging are not guaranteed by this repository.
 
+Hosted frontend: [bisharp.netlify.app](https://bisharp.netlify.app/). Public
+contract addresses and the pending pairing status are recorded in
+[deployments/README.md](../deployments/README.md). Hosting alone does not prove
+public CCIP delivery or a public order fill.
+
 ## Chainlink: Best use of CCIP 2.0
 
 - Required: CCIP used inside smart contracts to cause an on-chain state change. Price-feed reads alone do not qualify.
 - Intended evidence: authenticated CREATE from Ethereum Sepolia registers an order on OP Sepolia; destination FILLED/CANCELLED receipts allocate exactly one source entitlement. Retain source transactions, CCIP message IDs, destination execution transactions, contract addresses, verified source and configuration.
-- Current status: **implemented and tested locally; public criterion not yet met**. SourceEscrow and DestinationExecutor use pinned CCIP 2.0 contracts, V3 arguments and authenticated terminal receipts. Real public CCIP execution evidence remains outstanding; the user requested local completion before publishing/deploying. The local transport fixture cannot satisfy the on-chain CCIP requirement.
+- Current status: **implemented and tested locally; public criterion not yet met**. SourceEscrow and DestinationExecutor use pinned CCIP 2.0 contracts, V3 arguments and authenticated terminal receipts. Both main contracts are publicly deployed and source-verified; pairing and real public CCIP execution evidence remain outstanding. The local transport fixture cannot satisfy the on-chain CCIP requirement.
 - CRE is a separate track; no CRE workflow is claimed.
 
 ## Uniswap Foundation: Build with Uniswap
@@ -19,6 +24,6 @@ User-selected targets: **Chainlink CCIP 2.0** and **Uniswap Foundation**. The su
 
 ## Submission evidence that cannot be inferred
 
-Public repository URL, permitted event track, participant registration/team eligibility, demo video, live demo URL, and the final submission must be supplied or completed truthfully. Local commits establish actual progress from this point; never backdate or fabricate earlier event work. The configured GitHub repository is [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp). Do not mark a prize requirement complete merely because code compiles or mock tests pass.
+The public repository and hosted frontend URLs are recorded above. Permitted event track, participant registration/team eligibility, demo video and the final submission must still be supplied or completed truthfully. Local commits establish actual progress from this point; never backdate or fabricate earlier event work. The configured GitHub repository is [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp). Do not mark a prize requirement complete merely because code compiles or mock tests pass.
 
 Whitechain is not a selected target. Its requirements include a verified Whitechain Sepolia deployment and a payment with the specified partner USDT. Neither funding OP Sepolia nor minting our own token fulfills those requirements.

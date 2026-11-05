@@ -1,8 +1,10 @@
 # Bisharp
 
+[Live frontend](https://bisharp.netlify.app/) · [Source code](https://github.com/Samarth208P/bisharp)
+
 Conditional cross-chain orders with **Next.js, Foundry, Chainlink CCIP 2.0 and Uniswap v3**. User principal stays in a source escrow; a designated solver supplies destination tokens and swaps them to the user's fixed recipient. An authenticated terminal receipt allocates either solver payment or a user refund on the source.
 
-**Current status: locally tested release candidate, not production-audited.** Public testnet contracts are deployed and source-verified; irreversible peer pairing awaits approval, so the route is not active yet. Source repository: [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp). The working two-node local demo uses real Uniswap bytecode, a fixed local oracle and an explicitly unauthenticated transport fixture. It does not establish live CCIP delivery or prize eligibility. Funded Ethereum/OP Sepolia wallets have not been spent by this work.
+**Current status: locally tested release candidate, not production-audited.** Public testnet contracts are deployed and source-verified; irreversible peer pairing awaits approval, so the route is not active yet. Source repository: [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp). The working two-node local demo uses real Uniswap bytecode, a fixed local oracle and an explicitly unauthenticated transport fixture. It does not establish live CCIP delivery or prize eligibility. Testnet funds have been used for the recorded public deployments and pool liquidity.
 
 ## Run the complete local demo
 
@@ -126,6 +128,9 @@ The build checker verifies that locally configured deployment keys are absent fr
 
 ## Deploy the frontend on Netlify
 
+Hosted frontend: [bisharp.netlify.app](https://bisharp.netlify.app/). Hosting is
+complete; contract pairing and public CCIP round-trip validation remain pending.
+
 Import [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp) and select
 branch `main`. Leave the base directory at the repository root. The checked-in
 `netlify.toml` sets build command `npm run build`, publish directory `.next`,
@@ -164,7 +169,7 @@ The frontend needs no private keys, seed phrases, Netlify token, Foundry secrets
 faucet and explorer are disabled on Netlify. Hosting the frontend does not deploy
 contracts, run a solver or establish live CCIP delivery. GitHub Actions are not used.
 
-## Public testnet deployment — deferred
+## Public testnet deployment
 
 `contracts/script/DeployCross.s.sol` prepares Ethereum Sepolia → OP Sepolia using official CCIP routers, OP's canonical v3 factory/position manager/WETH, the verified ETH/USD proxy and a locally deployed unchanged official original SwapRouter artifact. The original router ABI has a deadline and must **not** be replaced with SwapRouter02's different ABI. The destination script seeds at most 0.03 OP Sepolia ETH of test liquidity with minimum-amount protection. It checks chain IDs, deployed dependencies and feed freshness. See [deployments/README.md](deployments/README.md).
 
@@ -176,6 +181,6 @@ Targets: **Chainlink CCIP 2.0** and **Uniswap Foundation**. See [docs/PARTNER_RE
 
 - Chainlink integration code is implemented and tested locally. Actual CCIP 2.0 on-chain state-change/message evidence remains outstanding; the local mock cannot satisfy it.
 - Uniswap v3 integration is implemented and exercised against official bytecode, including the two-node demo. `FEEDBACK.md` is present. Repository: [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp). The repository is public; the developer feedback form remains outstanding.
-- Public hosting, explorer source verification, event eligibility, a recorded demo and submission are separate remaining tasks. No partner form or competition submission has been performed. Public deployments are recorded separately; live CCIP round-trip evidence remains outstanding.
+- The frontend is hosted at [bisharp.netlify.app](https://bisharp.netlify.app/), and both main contracts have exact-match Sourcify verification. Explorer-specific verification, event eligibility, a recorded demo and submission remain separate tasks. No partner form or competition submission has been performed. Public deployments are recorded separately; live CCIP round-trip evidence remains outstanding.
 
 The earlier `Bisharp.sol` single-chain implementation remains only as a tested reference; the main UI and new contracts use the cross-chain lifecycle.

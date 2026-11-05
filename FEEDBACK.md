@@ -2,6 +2,9 @@
 
 Project: Bisharp. Target: ETHGlobal Mumbai, Build with Uniswap. Work recorded 2026-11-05. This file describes actual implementation/testing experience; a developer feedback form has not been submitted. Repository: [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp) (public).
 
+Hosted frontend: [bisharp.netlify.app](https://bisharp.netlify.app/). Public
+contracts are deployed; pairing and live cross-chain execution remain pending.
+
 ## What we built
 
 A destination executor performs one configured Uniswap v3 exact-input swap using the solver's destination stablecoin. User principal remains on a different chain until an authenticated CCIP terminal receipt arrives. The executor pins the router, its factory's pool and fee tier. It enforces the accepted minimum output and deadline, checks the actual recipient balance increase, and clears router allowances after execution.
@@ -26,4 +29,4 @@ Publish a versioned, machine-readable chain deployment example that binds router
 
 ## Evidence and limits
 
-The local two-chain integration exercised real Uniswap bytecode and actual token balance changes, plus successful source settlement and cancellation/refund. Extended deterministic fuzz results are in `reports/foundry-results.json`. Public testnet execution, explorer source verification, live demo hosting and form submission remain separate tasks. We do not invent a time-to-first-success metric or user feedback we did not measure.
+The local two-chain integration exercised real Uniswap bytecode and actual token balance changes, plus successful source settlement and cancellation/refund. Extended deterministic fuzz results are in `reports/foundry-results.json`. The frontend is hosted at [bisharp.netlify.app](https://bisharp.netlify.app/), and both main contracts have exact-match Sourcify verification. Public order execution, explorer-specific verification and form submission remain separate tasks. We do not invent a time-to-first-success metric or user feedback we did not measure.

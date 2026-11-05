@@ -1,5 +1,7 @@
 # Public testnet deployment
 
+Hosted frontend: [bisharp.netlify.app](https://bisharp.netlify.app/).
+
 Both contracts were deployed using the configured testnet wallet and have
 **exact-match Sourcify verification**. The OP Sepolia pool was seeded with at most
 0.03 test ETH and the matching unbacked bUSD test token.
