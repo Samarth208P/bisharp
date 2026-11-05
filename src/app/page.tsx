@@ -1330,7 +1330,9 @@ export default function Home() {
             <form onSubmit={create}>
               <div className="amount-box">
                 <div className="field-top">
-                  <label htmlFor="principal">You escrow on source</label>
+                  <label htmlFor="principal">
+                    You pay (held until settlement)
+                  </label>
                   <span>
                     {data && account
                       ? `${amount(data.balance)} bUSD available`
@@ -1350,7 +1352,8 @@ export default function Home() {
                   </span>
                 </div>
                 <span className="field-foot">
-                  Exact principal. Separate native message fees and gas.
+                  Gas and message fees are additional. Review them before
+                  signing.
                 </span>
               </div>
               <div className="flow-divider">
@@ -1360,7 +1363,7 @@ export default function Home() {
               <div className="split-fields">
                 <div>
                   <label htmlFor="solver-input">
-                    Solver spends (destination bUSD)
+                    Trade funding (destination bUSD)
                   </label>
                   <input
                     className="recipient-input"
@@ -1395,48 +1398,64 @@ export default function Home() {
                     required
                   />
                 </div>
-                <div>
-                  <label id="expiry-label" htmlFor="expiry">
-                    Expires in
+              </div>
+              <details className="simple-disclosure order-options">
+                <summary>
+                  Order settings <span>Expiry, recipient & solver</span>
+                </summary>
+                <div className="disclosure-content">
+                  <div>
+                    <label id="expiry-label" htmlFor="expiry">
+                      Expires in
+                    </label>
+                    <SelectField
+                      id="expiry"
+                      labelId="expiry-label"
+                      value={String(hours)}
+                      options={[
+                        { value: "1", label: "1 hour" },
+                        { value: "24", label: "24 hours" },
+                        { value: "72", label: "3 days" },
+                        { value: "168", label: "7 days" },
+                      ]}
+                      onChange={(value) => setHours(Number(value))}
+                      disabled={Boolean(busy)}
+                    />
+                  </div>
+                  <label className="recipient-label spaced" htmlFor="recipient">
+                    Destination recipient <span>Defaults to your wallet</span>
                   </label>
-                  <SelectField
-                    id="expiry"
-                    labelId="expiry-label"
-                    value={String(hours)}
-                    options={[
-                      { value: "1", label: "1 hour" },
-                      { value: "24", label: "24 hours" },
-                      { value: "72", label: "3 days" },
-                      { value: "168", label: "7 days" },
-                    ]}
-                    onChange={(value) => setHours(Number(value))}
-                    disabled={Boolean(busy)}
+                  <input
+                    className="recipient-input"
+                    id="recipient"
+                    value={recipient}
+                    onChange={(e) => setRecipient(e.target.value)}
+                    placeholder="0x…"
+                    spellCheck={false}
+                  />
+                  <label className="recipient-label spaced" htmlFor="solver">
+                    Designated solver{" "}
+                    <span>Fixed funding and source payout identity</span>
+                  </label>
+                  <input
+                    className="recipient-input"
+                    id="solver"
+                    value={solver}
+                    onChange={(e) => setSolver(e.target.value)}
+                    placeholder={route.solver || account || "0x…"}
+                    spellCheck={false}
                   />
                 </div>
-              </div>
-              <label className="recipient-label" htmlFor="recipient">
-                Destination recipient <span>Defaults to your wallet</span>
-              </label>
-              <input
-                className="recipient-input"
-                id="recipient"
-                value={recipient}
-                onChange={(e) => setRecipient(e.target.value)}
-                placeholder="0x…"
-                spellCheck={false}
-              />
-              <label className="recipient-label spaced" htmlFor="solver">
-                Designated solver{" "}
-                <span>Fixed funding and source payout identity</span>
-              </label>
-              <input
-                className="recipient-input"
-                id="solver"
-                value={solver}
-                onChange={(e) => setSolver(e.target.value)}
-                placeholder={route.solver || account || "0x…"}
-                spellCheck={false}
-              />
+              </details>
+              <p className="order-defaults">
+                Expires in {hours} hours ·{" "}
+                {recipient ? "Custom recipient" : "Sent to your wallet"}.
+                {solver
+                  ? " Custom solver selected."
+                  : route.solver
+                    ? " Route solver selected."
+                    : " You fund and execute the destination trade."}
+              </p>
               <div className="order-facts">
                 <span>
                   Quote model
@@ -1452,27 +1471,30 @@ export default function Home() {
                   <strong>Native test ETH, quoted before signing</strong>
                 </span>
               </div>
-              <div className="draft-actions">
-                <button
-                  type="button"
-                  className="text-button"
-                  disabled={Boolean(busy)}
-                  onClick={saveDraft}
-                >
-                  Save draft
-                </button>
-                {savedDraft && (
+              <details className="simple-disclosure draft-options">
+                <summary>Save or restore a draft</summary>
+                <div className="draft-actions">
                   <button
                     type="button"
                     className="text-button"
                     disabled={Boolean(busy)}
-                    onClick={restoreDraft}
+                    onClick={saveDraft}
                   >
-                    Restore saved draft
+                    Save draft
                   </button>
-                )}
-                <span>Saved only in this browser, for this route.</span>
-              </div>
+                  {savedDraft && (
+                    <button
+                      type="button"
+                      className="text-button"
+                      disabled={Boolean(busy)}
+                      onClick={restoreDraft}
+                    >
+                      Restore saved draft
+                    </button>
+                  )}
+                  <span>Saved only in this browser, for this route.</span>
+                </div>
+              </details>
               {account ? (
                 <button
                   type="submit"
@@ -1483,7 +1505,7 @@ export default function Home() {
                     ? "Awaiting route activation"
                     : !routeReady
                       ? "Route unavailable"
-                      : "Review exact terms"}
+                      : "Review order"}
                 </button>
               ) : (
                 <button
@@ -1503,8 +1525,8 @@ export default function Home() {
             <section className="market-panel">
               <div className="market-top">
                 <div>
-                  <h2>Destination ETH / USD</h2>
-                  <p>On-chain eligibility reference</p>
+                  <h2>Current ETH price</h2>
+                  <p>Price reference for your order</p>
                 </div>
                 <span
                   className={`live-label ${destFresh && dest?.price ? "is-live" : ""}`}
@@ -1539,120 +1561,137 @@ export default function Home() {
                 </div>
               )}
             </section>
-            <TradeCheck
-              principal={principal}
-              amountIn={solverInput}
-              minOutput={minimum}
-              livePrice={destFresh ? (dest?.price ?? null) : null}
-              onMinimum={setMinimum}
-              disabled={Boolean(busy)}
-              feeBudget={feeBudgetUsd}
-              onFeeBudget={setFeeBudgetUsd}
-              selfSolving={Boolean(
-                account && equal(solver || route.solver || account, account),
-              )}
-            />
-            <section className="balances-panel">
-              <h2>Funding & recovery</h2>
-              <div className="balance-line">
-                <span>Source bUSD</span>
-                <strong>{data && account ? amount(data.balance) : "—"}</strong>
-              </div>
-              <div className="balance-line">
-                <span>Destination solver bUSD</span>
-                <strong>{dest && account ? amount(dest.balance) : "—"}</strong>
-              </div>
-              <div className="balance-line">
-                <span>Earned source credits</span>
-                <strong>{data && account ? amount(data.credits) : "—"}</strong>
-              </div>
-              <p className="solver-help">
-                Claim each eligible order below. Destination liquidity belongs
-                to the solver; no user principal is bridged.
-              </p>
-              <details className="faucet">
-                <summary>Test-token faucets and fee refunds</summary>
-                <p>
-                  Mint test bUSD on each chain. Gas requires native test ETH on
-                  that same chain.
-                </p>
-                <div>
-                  <button
-                    className="text-button"
-                    disabled={disabled || !sourceReady}
-                    onClick={() =>
-                      data &&
-                      send({
-                        label: "Mint source bUSD",
-                        side: "source",
-                        address: data.token,
-                        abi: tokenAbi,
-                        functionName: "faucet",
-                        args: [],
-                      })
-                    }
-                  >
-                    Mint source
-                  </button>
-                  <button
-                    className="text-button"
-                    disabled={disabled || !destReady}
-                    onClick={() =>
-                      dest &&
-                      send({
-                        label: "Mint destination bUSD",
-                        side: "destination",
-                        address: dest.token,
-                        abi: tokenAbi,
-                        functionName: "faucet",
-                        args: [],
-                      })
-                    }
-                  >
-                    Mint destination
-                  </button>
+            <details className="simple-disclosure optional-panel">
+              <summary>
+                Estimate trade costs <span>Optional calculator</span>
+              </summary>
+              <TradeCheck
+                principal={principal}
+                amountIn={solverInput}
+                minOutput={minimum}
+                livePrice={destFresh ? (dest?.price ?? null) : null}
+                onMinimum={setMinimum}
+                disabled={Boolean(busy)}
+                feeBudget={feeBudgetUsd}
+                onFeeBudget={setFeeBudgetUsd}
+                selfSolving={Boolean(
+                  account && equal(solver || route.solver || account, account),
+                )}
+              />
+            </details>
+            <details className="simple-disclosure optional-panel">
+              <summary>
+                Balances & test tokens <span>Funding and fee refunds</span>
+              </summary>
+              <section className="balances-panel">
+                <h2>Funding & recovery</h2>
+                <div className="balance-line">
+                  <span>Source bUSD</span>
+                  <strong>
+                    {data && account ? amount(data.balance) : "—"}
+                  </strong>
                 </div>
-                {data && data.nativeCredit > 0n && (
-                  <button
-                    className="text-button"
-                    disabled={disabled || !sourceReady}
-                    onClick={() =>
-                      route.escrow &&
-                      send({
-                        label: "Claim source fee change",
-                        side: "source",
-                        address: route.escrow,
-                        abi: sourceAbi,
-                        functionName: "claimNative",
-                        args: [account],
-                      })
-                    }
-                  >
-                    Source fee change: {formatUnits(data.nativeCredit, 18)} ETH
-                  </button>
-                )}
-                {dest && dest.nativeCredit > 0n && (
-                  <button
-                    className="text-button"
-                    disabled={disabled || !destReady}
-                    onClick={() =>
-                      route.executor &&
-                      send({
-                        label: "Claim destination fee change",
-                        side: "destination",
-                        address: route.executor,
-                        abi: destinationAbi,
-                        functionName: "claimNative",
-                        args: [account],
-                      })
-                    }
-                  >
-                    Destination fee change: {formatUnits(dest.nativeCredit, 18)}{" "}
-                    ETH
-                  </button>
-                )}
-              </details>
-            </section>
+                <div className="balance-line">
+                  <span>Destination solver bUSD</span>
+                  <strong>
+                    {dest && account ? amount(dest.balance) : "—"}
+                  </strong>
+                </div>
+                <div className="balance-line">
+                  <span>Earned source credits</span>
+                  <strong>
+                    {data && account ? amount(data.credits) : "—"}
+                  </strong>
+                </div>
+                <p className="solver-help">
+                  Claim each eligible order below. Destination liquidity belongs
+                  to the solver; no user principal is bridged.
+                </p>
+                <details className="faucet">
+                  <summary>Test-token faucets and fee refunds</summary>
+                  <p>
+                    Mint test bUSD on each chain. Gas requires native test ETH
+                    on that same chain.
+                  </p>
+                  <div>
+                    <button
+                      className="text-button"
+                      disabled={disabled || !sourceReady}
+                      onClick={() =>
+                        data &&
+                        send({
+                          label: "Mint source bUSD",
+                          side: "source",
+                          address: data.token,
+                          abi: tokenAbi,
+                          functionName: "faucet",
+                          args: [],
+                        })
+                      }
+                    >
+                      Mint source
+                    </button>
+                    <button
+                      className="text-button"
+                      disabled={disabled || !destReady}
+                      onClick={() =>
+                        dest &&
+                        send({
+                          label: "Mint destination bUSD",
+                          side: "destination",
+                          address: dest.token,
+                          abi: tokenAbi,
+                          functionName: "faucet",
+                          args: [],
+                        })
+                      }
+                    >
+                      Mint destination
+                    </button>
+                  </div>
+                  {data && data.nativeCredit > 0n && (
+                    <button
+                      className="text-button"
+                      disabled={disabled || !sourceReady}
+                      onClick={() =>
+                        route.escrow &&
+                        send({
+                          label: "Claim source fee change",
+                          side: "source",
+                          address: route.escrow,
+                          abi: sourceAbi,
+                          functionName: "claimNative",
+                          args: [account],
+                        })
+                      }
+                    >
+                      Source fee change: {formatUnits(data.nativeCredit, 18)}{" "}
+                      ETH
+                    </button>
+                  )}
+                  {dest && dest.nativeCredit > 0n && (
+                    <button
+                      className="text-button"
+                      disabled={disabled || !destReady}
+                      onClick={() =>
+                        route.executor &&
+                        send({
+                          label: "Claim destination fee change",
+                          side: "destination",
+                          address: route.executor,
+                          abi: destinationAbi,
+                          functionName: "claimNative",
+                          args: [account],
+                        })
+                      }
+                    >
+                      Destination fee change:{" "}
+                      {formatUnits(dest.nativeCredit, 18)} ETH
+                    </button>
+                  )}
+                </details>
+              </section>
+            </details>
           </div>
         </div>
 

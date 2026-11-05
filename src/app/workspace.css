@@ -350,3 +350,53 @@
     gap: 12px 18px;
   }
 }
+/* Progressive disclosure keeps optional tools out of the main order flow. */
+.trading-app .simple-disclosure {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.simple-disclosure > summary {
+  cursor: pointer;
+  padding: 15px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 48px;
+}
+.simple-disclosure > summary span {
+  display: block;
+  margin: 4px 0 0 16px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.simple-disclosure > summary:focus-visible {
+  outline: 2px solid var(--color-ember);
+  outline-offset: 3px;
+  border-radius: 16px;
+}
+.simple-disclosure[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+.disclosure-content {
+  padding: 18px;
+}
+.trading-app .optional-panel > .trade-check,
+.trading-app .optional-panel > .balances-panel {
+  border: 0;
+  background: transparent;
+  padding: 20px;
+}
+.trading-app .order-defaults {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 12px;
+  line-height: 1.6;
+}
+.trading-app .draft-options {
+  margin: 16px 0;
+}
+.trading-app .draft-options .draft-actions {
+  padding: 16px 18px;
+  margin: 0;
+}
