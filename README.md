@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/brand/logo.svg" alt="Bisharp" width="360" />
+</p>
+
 # Bisharp
 
 [Live frontend](https://bisharp.netlify.app/) · [Source code](https://github.com/Samarth208P/bisharp)

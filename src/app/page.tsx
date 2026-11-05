@@ -18,6 +18,7 @@ import { sourceAbi, destinationAbi } from "@/lib/cross-abi";
 import { configuredRoutes, type Route } from "@/lib/routes";
 import { orderInput, type Terms } from "@/lib/order-input";
 import { tokenAbi, shortAddress } from "@/lib/web3";
+import { ArrowIcon, BrandMark, HalftoneArt, PageMotion } from "./visuals";
 
 type Record = {
   terms: Terms;
@@ -811,14 +812,20 @@ export default function Home() {
     `${explorer(route, "destination")}/address/${address}`;
   return (
     <>
+      <PageMotion />
+      <a className="skip-link" href="#workspace">
+        Skip to trading workspace
+      </a>
       <header className="topbar">
-        <a className="brand" href="/">
+        <a className="brand" href="/" aria-label="Bisharp home">
+          <BrandMark />
           bisharp<span className="brand-dot">.</span>
         </a>
         <nav aria-label="Main">
           <a className="nav-active" href="#workspace">
-            Cross-chain orders
+            Trade
           </a>
+          <a href="#activity">Activity</a>
           <a href="#how-it-works">How it works</a>
         </nav>
         <div className="header-actions">
@@ -835,30 +842,76 @@ export default function Home() {
           </button>
         </div>
       </header>
-      <main id="workspace">
+      <main>
         <section className="page-intro">
-          <div>
+          <div className="hero-copy">
             <div className="intro-kicker">
-              Conditional cross-chain settlement
+              <span className="small-tag">Testnet workspace</span>
+              <span>Cross-chain. On your terms.</span>
             </div>
             <h1>
-              Your price.
-              <br />
-              Across chains.
+              <span>Your price.</span>
+              <span>Across</span>
+              <span>chains.</span>
             </h1>
             <p>
-              Escrow on the source. Solver-funded Uniswap delivery on the
-              destination.
-              <br />
-              Payment follows an authenticated CCIP receipt.
+              Set your price. Choose your destination. Let solvers make the
+              move, with settlement powered by Chainlink CCIP.
             </p>
+            <div className="hero-actions">
+              <a className="primary" href="#workspace">
+                Create an order <ArrowIcon />
+              </a>
+              <a className="secondary" href="#how-it-works">
+                How it works <span aria-hidden="true">↘</span>
+              </a>
+            </div>
+            <div className="hero-footnote">
+              <span aria-hidden="true">↳</span> Your terms, enforced onchain.
+            </div>
           </div>
-          <div className="route-illustration" aria-hidden="true">
-            <div className="route-circle">$</div>
-            <div className="route-track">··· → ···</div>
-            <div className="route-circle eth-shape">♦</div>
-            <span className="route-caption">CCIP 2.0 · Finality required</span>
-          </div>
+          <HalftoneArt />
+        </section>
+        <div className="protocol-strip" aria-label="Protocol infrastructure">
+          <span className="protocol-caption">
+            Built on proven
+            <br />
+            infrastructure
+          </span>
+          <a
+            href="https://chain.link/cross-chain"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span className="chainlink-mark" aria-hidden="true">
+              ⬡
+            </span>{" "}
+            Chainlink <small>CCIP</small>
+          </a>
+          <a href="https://uniswap.org/" target="_blank" rel="noreferrer">
+            <span className="uniswap-mark" aria-hidden="true">
+              ✳
+            </span>{" "}
+            Uniswap <small>v3</small>
+          </a>
+          <a href="https://ethereum.org/" target="_blank" rel="noreferrer">
+            <span className="ethereum-mark" aria-hidden="true">
+              ♦
+            </span>{" "}
+            Ethereum
+          </a>
+          <span className="protocol-note">
+            Two chains.
+            <br />
+            One intention.
+          </span>
+        </div>
+        <section className="workspace-heading" id="workspace" data-reveal>
+          <h2>Make your move.</h2>
+          <p>
+            A price-triggered order.
+            <br />A destination of your choosing.
+          </p>
         </section>
         <div className="test-banner">
           <p>
@@ -918,10 +971,8 @@ export default function Home() {
         </div>
         {!route.configured && (
           <div className="setup-note">
-            <strong>Configure a deployed route.</strong> Set
-            NEXT_PUBLIC_SOURCE_ADDRESS and NEXT_PUBLIC_DESTINATION_ADDRESS, or
-            provide NEXT_PUBLIC_ROUTES_JSON for multiple testnet routes. See
-            README. No balances or confirmations are simulated in this UI.
+            <strong>This route is not available yet.</strong> Choose a deployed
+            settlement route to load balances and create orders.
           </div>
         )}
         {sourceError && (
@@ -954,7 +1005,7 @@ export default function Home() {
             </div>
           )}
         <div className="workspace-grid">
-          <section className="order-panel">
+          <section className="order-panel" aria-label="Create an order">
             <div className="panel-heading">
               <div>
                 <h2>Create an order</h2>
@@ -982,14 +1033,17 @@ export default function Home() {
                     onChange={(e) => setPrincipal(e.target.value)}
                     required
                   />
-                  <span className="token-pill">bUSD</span>
+                  <span className="token-pill">
+                    <span aria-hidden="true">$</span>bUSD
+                  </span>
                 </div>
                 <span className="field-foot">
                   Exact principal. Separate native message fees and gas.
                 </span>
               </div>
               <div className="flow-divider">
-                ↓ Solver swaps its own destination bUSD through Uniswap v3
+                <span aria-hidden="true">↓</span> Solver-funded delivery through
+                Uniswap v3
               </div>
               <div className="split-fields">
                 <div>
@@ -1247,7 +1301,7 @@ export default function Home() {
           </div>
         </div>
 
-        <section className="orders-panel">
+        <section className="orders-panel" id="activity" data-reveal>
           <div className="orders-heading">
             <div>
               <h2>Cross-chain order activity</h2>
@@ -1267,6 +1321,7 @@ export default function Home() {
           <div className="tabs">
             <button
               className={view === "mine" ? "selected" : ""}
+              aria-pressed={view === "mine"}
               onClick={() => {
                 setView("mine");
                 setPage(0);
@@ -1277,6 +1332,7 @@ export default function Home() {
             </button>
             <button
               className={view === "all" ? "selected" : ""}
+              aria-pressed={view === "all"}
               onClick={() => {
                 setView("all");
                 setPage(0);
@@ -1624,18 +1680,25 @@ export default function Home() {
             </div>
           </section>
         )}
-        <section className="how-section" id="how-it-works">
+        <section className="how-section" id="how-it-works" data-reveal>
           <div>
+            <span className="small-tag">From intent to execution</span>
             <h2>
-              Execution and payment
+              Two chains.
               <br />
-              have separate confirmations.
+              One clear path.
             </h2>
-            <p>Message fees are separate from escrow principal.</p>
+            <p>
+              Execution and payment have separate confirmations. Follow your
+              order from source escrow to destination delivery.
+            </p>
+            <a className="secondary" href="#workspace">
+              Create an order <ArrowIcon />
+            </a>
           </div>
           <ol>
             <li>
-              <span className="step-number">1</span>
+              <span className="step-number">01</span>
               <div>
                 <h3>Lock and register</h3>
                 <p>
@@ -1646,7 +1709,7 @@ export default function Home() {
               </div>
             </li>
             <li>
-              <span className="step-number">2</span>
+              <span className="step-number">02</span>
               <div>
                 <h3>Fill or cancel on the destination</h3>
                 <p>
@@ -1657,7 +1720,7 @@ export default function Home() {
               </div>
             </li>
             <li>
-              <span className="step-number">3</span>
+              <span className="step-number">03</span>
               <div>
                 <h3>Send the receipt, then claim</h3>
                 <p>
@@ -1669,8 +1732,29 @@ export default function Home() {
             </li>
           </ol>
         </section>
+        <section className="closing-section" data-reveal>
+          <span className="small-tag">Built for your next move</span>
+          <div>
+            <h2>
+              Less watching.
+              <br />
+              More doing.
+            </h2>
+            <a
+              className="closing-link"
+              href="#workspace"
+              aria-label="Go to trading workspace"
+            >
+              <ArrowIcon />
+            </a>
+          </div>
+          <p>Set the conditions. Let the chains do the talking.</p>
+        </section>
         <footer>
-          <span className="footer-brand">bisharp.</span>
+          <a className="footer-brand" href="/" aria-label="Bisharp home">
+            <BrandMark />
+            bisharp.
+          </a>
           <span>
             Unaudited testnet release candidate · no production guarantees
           </span>
