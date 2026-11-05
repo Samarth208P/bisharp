@@ -145,6 +145,28 @@ test("local gas faucet cannot target a public network", async () => {
   }
 });
 
+test("Netlify refuses the local faucet even if fixture mode is enabled", async () => {
+  const previousLocal = process.env.NEXT_PUBLIC_ENABLE_LOCAL;
+  const previousNetlify = process.env.NETLIFY;
+  process.env.NEXT_PUBLIC_ENABLE_LOCAL = "true";
+  process.env.NETLIFY = "true";
+  try {
+    const response = await POST(
+      new Request("http://localhost/api/local/fund", {
+        method: "POST",
+        body: JSON.stringify({ address: wallet, chainId: 31337 }),
+      }),
+    );
+    assert.equal(response.status, 404);
+  } finally {
+    if (previousLocal === undefined)
+      delete process.env.NEXT_PUBLIC_ENABLE_LOCAL;
+    else process.env.NEXT_PUBLIC_ENABLE_LOCAL = previousLocal;
+    if (previousNetlify === undefined) delete process.env.NETLIFY;
+    else process.env.NETLIFY = previousNetlify;
+  }
+});
+
 test("local gas faucet rejects malformed payloads before contacting RPC", async () => {
   const previous = process.env.NEXT_PUBLIC_ENABLE_LOCAL;
   process.env.NEXT_PUBLIC_ENABLE_LOCAL = "true";

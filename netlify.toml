@@ -1,0 +1,10 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  NEXT_PUBLIC_ENABLE_LOCAL = "false"
+
+# Netlify automatically supplies its current Next.js/OpenNext adapter.
+# Route handlers require the adapter; do not use a static export or SPA rewrite.

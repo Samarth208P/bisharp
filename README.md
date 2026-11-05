@@ -124,6 +124,45 @@ Recorded results: [reports/foundry-results.json](reports/foundry-results.json), 
 
 The build checker verifies that locally configured deployment keys are absent from public static assets; it never prints their values. This is a targeted check, not a substitute for independent review. Eight frontend/API tests cover inputs, routes and the local faucet boundary. Run the commands above locally to verify contracts, frontend behavior, the production build and the two-chain integration.
 
+## Deploy the frontend on Netlify
+
+Import [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp) and select
+branch `main`. Leave the base directory at the repository root. The checked-in
+`netlify.toml` sets build command `npm run build`, publish directory `.next`,
+Node.js 22 and `NEXT_PUBLIC_ENABLE_LOCAL=false`. Netlify automatically supplies
+the Next.js adapter; no Foundry installation or contract compilation is needed
+to host the frontend. Keep server rendering enabled for the route handlers.
+
+Add these public environment variables in Netlify with **Builds** scope, then
+deploy (or redeploy after changing them):
+
+```dotenv
+NEXT_PUBLIC_ENABLE_LOCAL=false
+NEXT_PUBLIC_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
+NEXT_PUBLIC_OP_RPC_URL=https://sepolia.optimism.io
+NEXT_PUBLIC_SOURCE_ADDRESS=
+NEXT_PUBLIC_DESTINATION_ADDRESS=
+```
+
+Set `NEXT_PUBLIC_SOURCE_ADDRESS` to the verified Ethereum Sepolia SourceEscrow
+and `NEXT_PUBLIC_DESTINATION_ADDRESS` to its paired OP Sepolia DestinationExecutor.
+They must be public-chain deployments, not addresses from the local Anvil demo.
+No public deployments are currently recorded in this repository. You may leave
+both addresses unset for an initial frontend deployment; the interface shows
+an unconfigured route and disables order creation until valid deployments are set.
+
+`NEXT_PUBLIC_SOLVER_ADDRESS` is optional; without it, the order form defaults to
+the connected wallet. For additional deployed routes use `NEXT_PUBLIC_ROUTES_JSON`
+and the corresponding RPC variables documented above instead of the simple address
+pair. Leave that JSON variable unset for the initial deployment. RPC URLs must allow
+browser requests over HTTPS; any provider key inside a public RPC URL is visible
+to visitors and should have provider-side origin restrictions.
+
+The frontend needs no private keys, seed phrases, Netlify token, Foundry secrets,
+`PRICE_FEED` or `MAX_PRICE_AGE`. Users sign through their own wallets. The local
+faucet and explorer are disabled on Netlify. Hosting the frontend does not deploy
+contracts, run a solver or establish live CCIP delivery. GitHub Actions are not used.
+
 ## Public testnet deployment — deferred
 
 `contracts/script/DeployCross.s.sol` prepares Ethereum Sepolia → OP Sepolia using official CCIP routers, OP's canonical v3 factory/position manager/WETH, the verified ETH/USD proxy and a locally deployed unchanged official original SwapRouter artifact. The original router ABI has a deadline and must **not** be replaced with SwapRouter02's different ABI. The destination script seeds at most 0.03 OP Sepolia ETH of test liquidity with minimum-amount protection. It checks chain IDs, deployed dependencies and feed freshness. See [deployments/README.md](deployments/README.md).

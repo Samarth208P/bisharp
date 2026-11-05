@@ -9,6 +9,7 @@ export default async function LocalExplorer({
 }) {
   const { chain, kind, value } = await params;
   if (
+    process.env.NETLIFY === "true" ||
     process.env.NEXT_PUBLIC_ENABLE_LOCAL !== "true" ||
     !["31337", "31338"].includes(chain)
   )

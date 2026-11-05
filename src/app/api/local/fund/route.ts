@@ -1,7 +1,10 @@
 import { createPublicClient, createTestClient, http, isAddress } from "viem";
 
 export async function POST(request: Request) {
-  if (process.env.NEXT_PUBLIC_ENABLE_LOCAL !== "true")
+  if (
+    process.env.NETLIFY === "true" ||
+    process.env.NEXT_PUBLIC_ENABLE_LOCAL !== "true"
+  )
     return Response.json(
       { error: "Local fixtures are disabled." },
       { status: 404 },
