@@ -9,6 +9,17 @@ export async function POST(request: Request) {
       { error: "Local fixtures are disabled." },
       { status: 404 },
     );
+  // A different website must not be able to reset a development wallet's balance
+  // with a simple cross-origin POST. Requests from local scripts may omit Origin.
+  const origin = request.headers.get("origin");
+  if (
+    request.headers.get("sec-fetch-site") === "cross-site" ||
+    (origin !== null && origin !== new URL(request.url).origin)
+  )
+    return Response.json(
+      { error: "Use the local faucet from this app's origin." },
+      { status: 403 },
+    );
   try {
     const body: unknown = await request.json().catch(() => null);
     if (!body || typeof body !== "object")

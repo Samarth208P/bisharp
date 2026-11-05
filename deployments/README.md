@@ -12,11 +12,22 @@ Both contracts were deployed using the configured testnet wallet and have
 | DestinationExecutor | OP Sepolia, 11155420 | `0x975789FE1aF96a39efa2E8FF42e534C26bfB9670` |
 | Deployment wallet / optional solver | Both testnets | `0xdA600Dcd13E8BaB17E3c5f35242d840B8c88cB92` |
 
-**The route is not active yet. Both peers are zero and pairing awaits explicit
-approval.** Pairing permanently binds these addresses and burns the bootstrap
-pairing authority. Do not enable this route in Netlify until both pairing
-transactions and the route verifier succeed. A live CCIP order round trip has
-not been performed.
+**Both contracts are permanently paired and the public route verifier passes.**
+The user-approved pairing transactions set each peer to the counterpart above
+and cleared both bootstrap pairing authorities:
+
+- [Ethereum Sepolia source pairing](https://sepolia.etherscan.io/tx/0xe3e17fd3d74ab2529dc272b09c0352652c6f026385f703a34e37b78ff51063bb)
+- [OP Sepolia destination pairing](https://sepolia-optimism.etherscan.io/tx/0x92948ab68a6fc1045acf92fa6299efb2b4223dd136daa4835371c946a4d8e1e0)
+
+Verify this public pair independently of any local Anvil demo configuration:
+
+```powershell
+node --experimental-strip-types scripts/verify-route.ts --public
+```
+
+The check passed for chain IDs, approved peers, selectors, cleared pairing
+authorities, both router lanes, finality-required policies, and a fresh destination
+oracle price. A live CCIP order round trip has **not** been performed.
 
 Public receipts (including two reverted initial source-token deployment attempts)
 are in `public-transactions.json`. Contract, pool and token addresses are in

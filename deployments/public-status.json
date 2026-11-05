@@ -5,7 +5,7 @@
   "source": "0x2334a8c6f8807C4bD6452199835A366Ee840D2e7",
   "destination": "0x975789FE1aF96a39efa2E8FF42e534C26bfB9670",
   "solver": "0xdA600Dcd13E8BaB17E3c5f35242d840B8c88cB92",
-  "pairing": "awaiting explicit approval; both peers remain zero",
+  "pairing": "complete; both approved peers verified and both pairing authorities cleared",
   "publicCCIPRoundTrip": "not performed",
   "poolSeedETH": "0.03",
   "checks": [
@@ -22,5 +22,32 @@
     "destination": "exact_match",
     "sourceJob": "74ec4bd0-4afb-4f01-ab67-65cfb3059982",
     "destinationJob": "63992472-8c6a-4793-8f26-f2b1e7b54712"
+  },
+  "pairingTransactions": {
+    "source": {
+      "hash": "0xe3e17fd3d74ab2529dc272b09c0352652c6f026385f703a34e37b78ff51063bb",
+      "chainId": 11155111,
+      "blockNumber": "12071754",
+      "gasUsed": "128110"
+    },
+    "destination": {
+      "hash": "0x92948ab68a6fc1045acf92fa6299efb2b4223dd136daa4835371c946a4d8e1e0",
+      "chainId": 11155420,
+      "blockNumber": "51053438",
+      "gasUsed": "45728"
+    }
+  },
+  "routeVerification": {
+    "command": "node --experimental-strip-types scripts/verify-route.ts --public",
+    "result": "passed",
+    "checks": [
+      "chain IDs",
+      "both approved counterpart addresses",
+      "both local and remote selectors",
+      "both pairing authorities cleared",
+      "router support in both directions",
+      "finality-required receiver policies",
+      "positive and fresh destination price"
+    ]
   }
 }

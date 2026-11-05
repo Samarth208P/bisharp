@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   BaseError,
   createPublicClient,
@@ -15,10 +16,31 @@ import {
   type Hash,
 } from "viem";
 import { sourceAbi, destinationAbi } from "@/lib/cross-abi";
-import { configuredRoutes, type Route } from "@/lib/routes";
+import { configuredRoutes, networks, type Route } from "@/lib/routes";
+import {
+  canUseRouteSide,
+  inspectPairing,
+  isFreshSnapshot,
+  type PairingState,
+} from "@/lib/route-health";
 import { orderInput, type Terms } from "@/lib/order-input";
 import { tokenAbi, shortAddress } from "@/lib/web3";
-import { ArrowIcon, BrandMark, HalftoneArt, PageMotion } from "./visuals";
+import { BrandMark } from "./visuals";
+import { SelectField } from "./select-field";
+import { TradeCheck } from "./trade-check";
+import {
+  calculateTradePlan,
+  formatDecimal,
+  type TradePlan,
+} from "@/lib/trade-plan";
+import { parseOrderDraft, ordersCsv, type OrderDraft } from "@/lib/order-draft";
+import { getOrderInsight, summarizeOrders } from "@/lib/order-status";
+import {
+  parseTransactionHistory,
+  mergeTransactionHistory,
+  receiptTransaction,
+  type TrackedTransaction,
+} from "@/lib/transaction-history";
 
 type Record = {
   terms: Terms;
@@ -28,6 +50,7 @@ type Record = {
 };
 type Row = { id: bigint; source: Record; destination: Record | null };
 type Data = {
+  pairing: PairingState;
   rows: Row[];
   count: bigint;
   token: Address;
@@ -41,6 +64,7 @@ type Data = {
   at: number;
 };
 type Destination = {
+  pairing: PairingState;
   token: Address;
   output: Address;
   feed: Address;
@@ -52,13 +76,7 @@ type Destination = {
   block: bigint;
   at: number;
 };
-type Tx = {
-  hash: Hash;
-  chainId: number;
-  label: string;
-  state: "pending" | "confirmed" | "failed";
-  messages: Hash[];
-};
+type Tx = TrackedTransaction;
 type Action = {
   label: string;
   side: "source" | "destination";
@@ -68,7 +86,14 @@ type Action = {
   args: readonly unknown[];
   value?: bigint;
 };
-type Review = { action: Action; terms?: Terms; fee: bigint; budget: bigint };
+type Review = {
+  action: Action;
+  terms?: Terms;
+  fee: bigint;
+  budget: bigint;
+  protection?: TradePlan;
+  selfSolving?: boolean;
+};
 const routesConfig = configuredRoutes();
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const GAS = 400_000;
@@ -122,7 +147,10 @@ export default function Home() {
   const [routeIndex, setRouteIndex] = useState(0);
   const route = routesConfig.routes[routeIndex];
   const [account, setAccount] = useState<Address>();
+  const accountRef = useRef<Address | undefined>(undefined);
+  accountRef.current = account;
   const [chainId, setChainId] = useState<number>();
+  const [walletVersion, setWalletVersion] = useState(0);
   const [data, setData] = useState<Data>();
   const [dest, setDest] = useState<Destination>();
   const [sourceError, setSourceError] = useState("");
@@ -130,9 +158,12 @@ export default function Home() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const [now, setNow] = useState(0);
   const [page, setPage] = useState(0);
   const [view, setView] = useState<"mine" | "all">("mine");
+  const [activityFilter, setActivityFilter] = useState("all");
+  const [orderSearch, setOrderSearch] = useState("");
   const [principal, setPrincipal] = useState("5");
   const [solverInput, setSolverInput] = useState("5");
   const [minimum, setMinimum] = useState("0.0015");
@@ -140,32 +171,63 @@ export default function Home() {
   const [hours, setHours] = useState(24);
   const [recipient, setRecipient] = useState("");
   const [solver, setSolver] = useState("");
+  const [feeBudgetUsd, setFeeBudgetUsd] = useState("");
+  const [savedDraft, setSavedDraft] = useState<OrderDraft | null>(null);
+  const reviewOpener = useRef<HTMLElement | null>(null);
   const [review, setReview] = useState<Review>();
   const [accepted, setAccepted] = useState(false);
+  const [acceptedProtection, setAcceptedProtection] = useState(false);
   const [transactions, setTransactions] = useState<Tx[]>([]);
+  const reviewOpen = Boolean(review);
+  useEffect(() => {
+    if (!reviewOpen) return;
+    const opener = reviewOpener.current;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      if (opener?.isConnected) opener.focus();
+    };
+  }, [reviewOpen]);
   const lock = useRef(false);
   const generation = useRef(0);
-  const refreshLock = useRef(false);
+  const refreshLocks = useRef(new Set<string>());
   const identity = useRef("");
   identity.current = `${route?.id}:${account}:${page}:${view}`;
   const storageKey = `bisharp:cross:${route?.source.chain.id}:${route?.escrow}:${route?.destination.chain.id}:${route?.executor}`;
+  const draftKey = `${storageKey}:draft`;
+  const sourceFresh = Boolean(
+    route?.configured && isFreshSnapshot(data, sourceError, now),
+  );
+  const destFresh = Boolean(
+    route?.configured && isFreshSnapshot(dest, destError, now),
+  );
   const sourceReady = Boolean(
-    route?.configured && data && !sourceError && now - data.at < 45000,
+    route?.configured && canUseRouteSide(data, sourceError, now),
   );
   const destReady = Boolean(
-    route?.configured && dest && !destError && now - dest.at < 45000,
+    route?.configured && canUseRouteSide(dest, destError, now),
   );
+  const routeReady = sourceReady && destReady;
+  const awaitingPairing =
+    (sourceFresh && data?.pairing === "pending") ||
+    (destFresh && dest?.pairing === "pending");
 
   const refresh = useCallback(async () => {
+    const key = `${route?.id}:${account}:${page}:${view}`;
+    const walletGeneration = generation.current;
+    const requestKey = `${key}:${walletGeneration}`;
+    const isCurrent = () =>
+      key === identity.current && walletGeneration === generation.current;
     if (
       !route?.configured ||
       !route.escrow ||
       !route.executor ||
-      refreshLock.current
+      refreshLocks.current.has(requestKey)
     )
       return;
-    refreshLock.current = true;
-    const key = `${route.id}:${account}:${page}:${view}`;
+    refreshLocks.current.add(requestKey);
+    setRefreshing(true);
     const source = rpc(route, "source"),
       destination = rpc(route, "destination");
     try {
@@ -178,6 +240,7 @@ export default function Home() {
         const [
           token,
           peer,
+          authority,
           local,
           remote,
           count,
@@ -189,6 +252,7 @@ export default function Home() {
         ] = await Promise.all([
           get("inputToken"),
           get("peer"),
+          get("pairingAuthority"),
           get("localSelector"),
           get("remoteSelector"),
           get(
@@ -201,14 +265,15 @@ export default function Home() {
           get("liabilityCap"),
           get("totalLiability"),
         ]);
-        if (
-          !equal(peer as Address, route.executor) ||
-          local !== route.source.selector ||
-          remote !== route.destination.selector
-        )
-          throw new Error(
-            "Source pairing/selectors do not match the selected route. Writes are disabled.",
-          );
+        const pairing = inspectPairing({
+          peer: peer as Address,
+          expectedPeer: route.executor!,
+          authority: authority as Address,
+          local: local as bigint,
+          remote: remote as bigint,
+          expectedLocal: route.source.selector,
+          expectedRemote: route.destination.selector,
+        });
         const total = count as bigint;
         const offset = BigInt(page * 10);
         const ids =
@@ -271,6 +336,7 @@ export default function Home() {
             "Source token must have 6 decimals for this interface.",
           );
         return {
+          pairing,
           rows,
           count: total,
           token: token as Address,
@@ -302,6 +368,7 @@ export default function Home() {
           token,
           output,
           peer,
+          authority,
           local,
           remote,
           feed,
@@ -312,6 +379,7 @@ export default function Home() {
           get("inputToken"),
           get("outputToken"),
           get("peer"),
+          get("pairingAuthority"),
           get("localSelector"),
           get("remoteSelector"),
           get("priceFeed"),
@@ -319,14 +387,15 @@ export default function Home() {
           get("nativeCredits", [account || ZERO]),
           get("currentPrice").catch(() => null),
         ]);
-        if (
-          !equal(peer as Address, route.escrow) ||
-          local !== route.destination.selector ||
-          remote !== route.source.selector
-        )
-          throw new Error(
-            "Destination pairing/selectors do not match the selected route.",
-          );
+        const pairing = inspectPairing({
+          peer: peer as Address,
+          expectedPeer: route.escrow!,
+          authority: authority as Address,
+          local: local as bigint,
+          remote: remote as bigint,
+          expectedLocal: route.destination.selector,
+          expectedRemote: route.source.selector,
+        });
         const [balance, allowance, inputDecimals, outputDecimals] =
           await Promise.all([
             read(
@@ -371,6 +440,7 @@ export default function Home() {
             "Destination token decimals do not match this interface.",
           );
         return {
+          pairing,
           token: token as Address,
           output: output as Address,
           feed: feed as Address,
@@ -383,41 +453,69 @@ export default function Home() {
           at: Date.now(),
         };
       };
-      const [s, d] = await Promise.allSettled([sourceTask(), destTask()]);
-      if (key !== identity.current) return;
-      if (s.status === "fulfilled") {
-        if (d.status === "fulfilled") {
-          const results = await Promise.allSettled(
-            s.value.rows.map((row) =>
-              read(
-                route,
-                "destination",
-                route.executor!,
-                destinationAbi,
-                "getOrder",
-                [row.id],
-                d.value.block,
-              ),
+      // Publish each chain as soon as it resolves. Destination latency must not
+      // hold a healthy source claim behind remote reads.
+      const [s, d] = await Promise.allSettled([
+        sourceTask()
+          .then((snapshot) => {
+            if (isCurrent()) {
+              setData(snapshot);
+              setSourceError("");
+              setNow(Date.now());
+            }
+            return snapshot;
+          })
+          .catch((e: unknown) => {
+            if (isCurrent()) setSourceError(errorText(e));
+            throw e;
+          }),
+        destTask()
+          .then((snapshot) => {
+            if (isCurrent()) {
+              setDest(snapshot);
+              setDestError("");
+              setNow(Date.now());
+            }
+            return snapshot;
+          })
+          .catch((e: unknown) => {
+            if (isCurrent()) setDestError(errorText(e));
+            throw e;
+          }),
+      ]);
+      if (!isCurrent()) return;
+      if (s.status === "fulfilled" && d.status === "fulfilled") {
+        const results = await Promise.allSettled(
+          s.value.rows.map((row) =>
+            read(
+              route,
+              "destination",
+              route.executor!,
+              destinationAbi,
+              "getOrder",
+              [row.id],
+              d.value.block,
             ),
-          );
-          if (key !== identity.current) return;
-          s.value.rows.forEach((row, i) => {
-            const result = results[i];
-            row.destination =
-              result.status === "fulfilled" ? (result.value as Record) : null;
-          });
-        }
-        setData(s.value);
-        setSourceError("");
-      } else setSourceError(errorText(s.reason));
-      if (d.status === "fulfilled") {
-        setDest(d.value);
-        setDestError("");
-      } else setDestError(errorText(d.reason));
+          ),
+        );
+        if (!isCurrent()) return;
+        const rows = s.value.rows.map((row, i) => {
+          const result = results[i];
+          return {
+            ...row,
+            destination:
+              result.status === "fulfilled" ? (result.value as Record) : null,
+          };
+        });
+        // Keep the source timestamp: attaching destination state does not
+        // make an old source observation fresh again.
+        setData({ ...s.value, rows });
+      }
     } finally {
-      refreshLock.current = false;
+      refreshLocks.current.delete(requestKey);
+      if (isCurrent()) setRefreshing(false);
     }
-  }, [route, account, page, view]);
+  }, [route, account, page, view, walletVersion]);
 
   useEffect(() => {
     setNow(Date.now());
@@ -429,6 +527,8 @@ export default function Home() {
       setDest(undefined);
       setReview(undefined);
       setAccepted(false);
+      setAcceptedProtection(false);
+      setWalletVersion(version);
       if (!provider) return;
       try {
         const [accounts, id] = await Promise.all([
@@ -436,6 +536,11 @@ export default function Home() {
           provider.request({ method: "eth_chainId" }),
         ]);
         if (generation.current === version) {
+          if (
+            (accounts as Address[])[0]?.toLowerCase() !==
+            accountRef.current?.toLowerCase()
+          )
+            setPage(0);
           setAccount((accounts as Address[])[0]);
           setChainId(Number(id));
         }
@@ -464,34 +569,28 @@ export default function Home() {
         localStorage.getItem(storageKey) || "[]",
       );
       setTransactions(
-        Array.isArray(value)
-          ? value
-              .filter(
-                (t) =>
-                  t &&
-                  /^0x[0-9a-fA-F]{64}$/.test(t.hash) &&
-                  typeof t.label === "string" &&
-                  [
-                    route?.source.chain.id,
-                    route?.destination.chain.id,
-                  ].includes(t.chainId) &&
-                  ["pending", "confirmed", "failed"].includes(t.state) &&
-                  Array.isArray(t.messages),
-              )
-              .slice(0, 12)
-          : [],
+        parseTransactionHistory(
+          value,
+          route ? [route.source.chain.id, route.destination.chain.id] : [],
+        ),
       );
     } catch {
       setTransactions([]);
     }
   }, [storageKey, route]);
+  useEffect(() => {
+    try {
+      setSavedDraft(
+        parseOrderDraft(JSON.parse(localStorage.getItem(draftKey) || "null")),
+      );
+    } catch {
+      setSavedDraft(null);
+    }
+  }, [draftKey]);
   const saveTx = useCallback(
     (tx: Tx) =>
       setTransactions((previous) => {
-        const next = [tx, ...previous.filter((t) => t.hash !== tx.hash)].slice(
-          0,
-          12,
-        );
+        const next = mergeTransactionHistory(previous, tx);
         try {
           localStorage.setItem(storageKey, JSON.stringify(next));
         } catch {}
@@ -554,6 +653,7 @@ export default function Home() {
     });
   }
   async function connect() {
+    const version = ++generation.current;
     try {
       if (!window.ethereum)
         throw new Error(
@@ -562,12 +662,16 @@ export default function Home() {
       const accounts = (await window.ethereum.request({
         method: "eth_requestAccounts",
       })) as Address[];
-      setAccount(accounts[0]);
-      setChainId(
-        Number(await window.ethereum.request({ method: "eth_chainId" })),
+      const id = Number(
+        await window.ethereum.request({ method: "eth_chainId" }),
       );
+      if (version !== generation.current) return;
+      setAccount(accounts[0]);
+      setChainId(id);
+      setPage(0);
+      setWalletVersion(version);
     } catch (e) {
-      setError(errorText(e));
+      if (version === generation.current) setError(errorText(e));
     }
   }
   async function localGas() {
@@ -603,6 +707,14 @@ export default function Home() {
     try {
       if (!account || !window.ethereum)
         throw new Error("Connect your wallet first.");
+      if (!(action.side === "source" ? sourceReady : destReady))
+        throw new Error(
+          "This side of the route is not ready. Check its status before sending a transaction.",
+        );
+      if (action.functionName === "createOrder" && !routeReady)
+        throw new Error(
+          "Both sides of the route must be active before creating an order.",
+        );
       const chain = route[action.side].chain;
       let wallet = createWalletClient({
         chain,
@@ -653,9 +765,20 @@ export default function Home() {
       });
       if (
         context !== identity.current ||
-        !equal((await wallet.getAddresses())[0], account)
+        !equal((await wallet.getAddresses())[0], account) ||
+        (await wallet.getChainId()) !== chain.id
       )
         throw new Error("Wallet or route changed. Review again.");
+      if (
+        !canUseRouteSide(
+          action.side === "source" ? data : dest,
+          action.side === "source" ? sourceError : destError,
+          Date.now(),
+        )
+      )
+        throw new Error(
+          "Route data became stale while preparing this transaction. Refresh and review again.",
+        );
       hash = await wallet.writeContract(request);
       const transaction: Tx = {
         hash,
@@ -668,19 +791,36 @@ export default function Home() {
       setNotice(
         "Transaction submitted. Waiting for a receipt; CCIP delivery is a separate step.",
       );
+      let replacementReason: "repriced" | "replaced" | "cancelled" | undefined;
       const receipt = await client.waitForTransactionReceipt({
         hash,
         confirmations: 1,
         timeout: 180000,
+        onReplaced: ({ reason }) => {
+          replacementReason = reason;
+          saveTx({
+            ...transaction,
+            state: "failed",
+            label: `${transaction.label} (replaced)`,
+          });
+        },
       });
+      const settled = receiptTransaction(
+        transaction,
+        receipt,
+        replacementReason,
+      );
       saveTx({
-        ...transaction,
-        state: receipt.status === "success" ? "confirmed" : "failed",
+        ...settled.transaction,
         messages: messageIds(receipt.logs, action.side),
       });
       if (receipt.status !== "success")
         throw new Error(
           "Transaction reverted. Check the explorer before retrying.",
+        );
+      if (!settled.actionSucceeded)
+        throw new Error(
+          "The wallet replaced this action with a different transaction. Inspect its receipt and refresh the order before retrying.",
         );
       setReview(undefined);
       setNotice(`${action.label} confirmed on ${chain.name}.`);
@@ -720,6 +860,7 @@ export default function Home() {
         return;
       setAccepted(false);
       setError("");
+      reviewOpener.current = document.activeElement as HTMLElement;
       setReview({ action, fee, budget: fee + fee / 5n + 1n });
     } catch (e) {
       setError(errorText(e));
@@ -730,15 +871,9 @@ export default function Home() {
     const context = identity.current;
     const walletGeneration = generation.current;
     try {
-      if (
-        !route?.escrow ||
-        !route.executor ||
-        !account ||
-        !data ||
-        !sourceReady
-      )
+      if (!route?.escrow || !route.executor || !account || !data || !routeReady)
         throw new Error(
-          "Connect a wallet and a fresh configured source route first.",
+          "Connect a wallet and wait for both sides of the route to be active before creating an order.",
         );
       const terms = orderInput({
         owner: account,
@@ -753,8 +888,13 @@ export default function Home() {
       });
       if (equal(terms.recipient, route.executor))
         throw new Error("The destination executor cannot be the recipient.");
-      if (equal(terms.solver, route.escrow))
-        throw new Error("The source escrow cannot be the solver.");
+      if (
+        equal(terms.solver, route.escrow) ||
+        equal(terms.solver, route.executor)
+      )
+        throw new Error(
+          "An escrow or executor contract cannot be the solver. Choose a wallet that can fund and execute the fill.",
+        );
       if (terms.principal > data.balance)
         throw new Error("Insufficient source bUSD. Mint test tokens first.");
       if (terms.principal > data.maxPrincipal)
@@ -780,8 +920,23 @@ export default function Home() {
         return;
       setAccepted(false);
       setError("");
+      const selfSolving = equal(terms.owner, terms.solver);
+      const protection = calculateTradePlan({
+        principal: formatUnits(
+          selfSolving ? terms.amountIn : terms.principal,
+          6,
+        ),
+        amountIn: formatUnits(terms.amountIn, 6),
+        minOutput: formatUnits(terms.minOutput, 18),
+        oraclePrice: terms.maxPrice,
+        feeBudgetUsd,
+      });
+      reviewOpener.current = document.activeElement as HTMLElement;
+      setAcceptedProtection(false);
       setReview({
         terms,
+        protection,
+        selfSolving,
         fee,
         budget: fee + fee / 5n + 1n,
         action: {
@@ -798,6 +953,68 @@ export default function Home() {
     }
   }
 
+  function saveDraft() {
+    setNotice("");
+    const draft = parseOrderDraft({
+      principal,
+      amountIn: solverInput,
+      minOutput: minimum,
+      maxPrice: trigger,
+      hours,
+      recipient,
+      solver,
+    });
+    if (!draft) {
+      setError(
+        "Enter valid amounts, expiry and wallet addresses before saving a draft.",
+      );
+      return;
+    }
+    try {
+      localStorage.setItem(draftKey, JSON.stringify(draft));
+      setSavedDraft(draft);
+      setError("");
+      setNotice(
+        "Draft saved in this browser for this route. No transaction was submitted.",
+      );
+    } catch {
+      setError(
+        "This browser could not save the draft. Check local storage permissions.",
+      );
+    }
+  }
+
+  function restoreDraft() {
+    if (!savedDraft) return;
+    setError("");
+    setPrincipal(savedDraft.principal);
+    setSolverInput(savedDraft.amountIn);
+    setMinimum(savedDraft.minOutput);
+    setTrigger(savedDraft.maxPrice);
+    setHours(savedDraft.hours);
+    setRecipient(savedDraft.recipient);
+    setSolver(savedDraft.solver);
+    setReview(undefined);
+    setAccepted(false);
+    setNotice(
+      "Saved draft restored. Balances, fees and expiry will be checked again before signing.",
+    );
+  }
+
+  function exportOrders() {
+    if (!route || !data) return;
+    const url = URL.createObjectURL(
+      new Blob([ordersCsv(data.rows, route.id)], {
+        type: "text/csv;charset=utf-8",
+      }),
+    );
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `bisharp-${route.id}-page-${page + 1}.csv`;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   if (!route)
     return (
       <main className="config-error">
@@ -806,17 +1023,45 @@ export default function Home() {
       </main>
     );
   const disabled = Boolean(busy || !account);
+  const summary = summarizeOrders(data?.rows || [], now, account);
+  const protectionDelta =
+    review?.protection?.minimumValueDeltaAfterFeesUsd ??
+    review?.protection?.minimumValueDeltaUsd;
+  const protectionShortfall =
+    protectionDelta !== undefined &&
+    protectionDelta !== null &&
+    protectionDelta < 0n;
+  const visibleRows = (data?.rows || []).filter((row) => {
+    const insight = getOrderInsight(row, now, account);
+    const matchesFilter =
+      activityFilter === "all" ||
+      (activityFilter === "action"
+        ? insight.needsAction
+        : activityFilter === "active"
+          ? insight.category !== "complete" && insight.category !== "claim"
+          : insight.category === "complete");
+    const query = orderSearch.trim().toLowerCase().replace(/^#/, "");
+    return (
+      matchesFilter &&
+      (!query ||
+        [
+          String(row.id),
+          row.source.terms.owner,
+          row.source.terms.recipient,
+          row.source.terms.solver,
+        ].some((value) => value.toLowerCase().includes(query)))
+    );
+  });
   const sourceLink = (address: Address) =>
     `${explorer(route, "source")}/address/${address}`;
   const destinationLink = (address: Address) =>
     `${explorer(route, "destination")}/address/${address}`;
   return (
     <>
-      <PageMotion />
       <a className="skip-link" href="#workspace">
         Skip to trading workspace
       </a>
-      <header className="topbar">
+      <header className="topbar app-topbar">
         <a className="brand" href="/" aria-label="Bisharp home">
           <BrandMark />
           bisharp<span className="brand-dot">.</span>
@@ -826,7 +1071,14 @@ export default function Home() {
             Trade
           </a>
           <a href="#activity">Activity</a>
-          <a href="#how-it-works">How it works</a>
+          <Link
+            href="/how-it-works"
+            target="_blank"
+            rel="noopener"
+            aria-label="How it works (opens in a new tab)"
+          >
+            How it works <span aria-hidden="true">↗</span>
+          </Link>
         </nav>
         <div className="header-actions">
           <span className="network">
@@ -842,84 +1094,37 @@ export default function Home() {
           </button>
         </div>
       </header>
-      <main>
-        <section className="page-intro">
-          <div className="hero-copy">
-            <div className="intro-kicker">
-              <span className="small-tag">Testnet workspace</span>
-              <span>Cross-chain. On your terms.</span>
-            </div>
-            <h1>
-              <span>Your price.</span>
-              <span>Across</span>
-              <span>chains.</span>
-            </h1>
-            <p>
-              Set your price. Choose your destination. Let solvers make the
-              move, with settlement powered by Chainlink CCIP.
-            </p>
-            <div className="hero-actions">
-              <a className="primary" href="#workspace">
-                Create an order <ArrowIcon />
-              </a>
-              <a className="secondary" href="#how-it-works">
-                How it works <span aria-hidden="true">↘</span>
-              </a>
-            </div>
-            <div className="hero-footnote">
-              <span aria-hidden="true">↳</span> Your terms, enforced onchain.
-            </div>
+      <main className="trading-app" id="workspace">
+        <section className="app-page-heading">
+          <div>
+            <h1>Cross-chain orders</h1>
+            <p>Create an order, check your costs, and follow its settlement.</p>
           </div>
-          <HalftoneArt />
-        </section>
-        <div className="protocol-strip" aria-label="Protocol infrastructure">
-          <span className="protocol-caption">
-            Built on proven
-            <br />
-            infrastructure
+          <span className={`app-route-state${routeReady ? " is-ready" : ""}`}>
+            <span aria-hidden="true" />
+            {routeReady
+              ? "Route ready"
+              : awaitingPairing
+                ? "Awaiting activation"
+                : refreshing
+                  ? "Checking route…"
+                  : "Route unavailable"}
           </span>
-          <a
-            href="https://chain.link/cross-chain"
-            target="_blank"
-            rel="noreferrer"
-          >
-            <span className="chainlink-mark" aria-hidden="true">
-              ⬡
-            </span>{" "}
-            Chainlink <small>CCIP</small>
-          </a>
-          <a href="https://uniswap.org/" target="_blank" rel="noreferrer">
-            <span className="uniswap-mark" aria-hidden="true">
-              ✳
-            </span>{" "}
-            Uniswap <small>v3</small>
-          </a>
-          <a href="https://ethereum.org/" target="_blank" rel="noreferrer">
-            <span className="ethereum-mark" aria-hidden="true">
-              ♦
-            </span>{" "}
-            Ethereum
-          </a>
-          <span className="protocol-note">
-            Two chains.
-            <br />
-            One intention.
-          </span>
-        </div>
-        <section className="workspace-heading" id="workspace" data-reveal>
-          <h2>Make your move.</h2>
-          <p>
-            A price-triggered order.
-            <br />A destination of your choosing.
-          </p>
         </section>
-        <div className="test-banner">
+        <details className="test-banner app-test-notice">
+          <summary>
+            <span className="small-tag">Testnet only</span>
+            <span>bUSD is an unbacked test token.</span>
+            <span className="app-notice-detail">
+              Network & settlement notes
+            </span>
+          </summary>
           <p>
-            <strong>Testnet release candidate.</strong> bUSD is an unbacked
-            faucet token. No guaranteed fills or refund timing during messaging
-            outages. OP Sepolia has no sequencer-uptime signal configured.
+            This is an unaudited release candidate. There are no guaranteed
+            fills or refund timing during messaging outages. OP Sepolia has no
+            sequencer-uptime signal configured.
           </p>
-        </div>
+        </details>
         {localRoute(route) && (
           <div className="alert" role="status">
             <strong>Local fixture mode.</strong> Both chains run in Anvil.
@@ -943,13 +1148,32 @@ export default function Home() {
           </div>
         )}
         <div className="route-selector">
-          <label htmlFor="route">Settlement route</label>
-          <select
+          <label id="route-label" htmlFor="route">
+            Settlement route
+          </label>
+          <SelectField
             id="route"
+            labelId="route-label"
             disabled={Boolean(busy)}
-            value={routeIndex}
-            onChange={(e) => {
-              setRouteIndex(Number(e.target.value));
+            value={String(routeIndex)}
+            options={routesConfig.routes.map((r, i) => ({
+              value: String(i),
+              label: r.label,
+              description: !r.configured
+                ? "Not deployed"
+                : i === routeIndex && awaitingPairing
+                  ? "Awaiting activation"
+                  : i === routeIndex && routeReady
+                    ? "Ready to trade"
+                    : "Testnet route",
+            }))}
+            hint={
+              routesConfig.routes.length === 1
+                ? "This is the only route currently listed."
+                : "Choose where your order starts and settles."
+            }
+            onChange={(value) => {
+              setRouteIndex(Number(value));
               setData(undefined);
               setDest(undefined);
               setSourceError("");
@@ -959,15 +1183,14 @@ export default function Home() {
               setError("");
               setNotice("");
             }}
-          >
-            {routesConfig.routes.map((r, i) => (
-              <option key={r.id} value={i}>
-                {r.label}
-                {r.configured ? "" : " · not deployed"}
-              </option>
-            ))}
-          </select>
-          <span>Wallet: {chainId ? chainId : "not connected"}</span>
+          />
+          <span className="wallet-network">
+            Wallet:{" "}
+            {chainId
+              ? networks[chainId as keyof typeof networks]?.chain.name ||
+                `Unsupported network (${chainId})`
+              : "not connected"}
+          </span>
         </div>
         {!route.configured && (
           <div className="setup-note">
@@ -975,15 +1198,104 @@ export default function Home() {
             settlement route to load balances and create orders.
           </div>
         )}
+        {awaitingPairing && (
+          <section
+            className="route-status"
+            aria-labelledby="route-status-title"
+          >
+            <div className="route-status-icon" aria-hidden="true">
+              ↔
+            </div>
+            <div className="route-status-copy">
+              <p
+                id="route-status-title"
+                className="route-status-title"
+                role="status"
+              >
+                Route awaiting activation
+              </p>
+              <p>
+                The contracts are deployed, but their cross-chain connection is
+                not complete. Trading will unlock once the route operator
+                finishes setup. No wallet action is needed.
+              </p>
+              <details className="route-status-details">
+                <summary>View route details</summary>
+                <ul>
+                  <li>
+                    <span>{route.source.chain.name}</span>
+                    <span>
+                      {sourceFresh
+                        ? data?.pairing === "pending"
+                          ? "Awaiting pairing"
+                          : "Paired"
+                        : "Not verified"}
+                    </span>
+                    {route.escrow && (
+                      <a
+                        href={sourceLink(route.escrow)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        View source contract ↗
+                      </a>
+                    )}
+                  </li>
+                  <li>
+                    <span>{route.destination.chain.name}</span>
+                    <span>
+                      {destFresh
+                        ? dest?.pairing === "pending"
+                          ? "Awaiting pairing"
+                          : "Paired"
+                        : "Not verified"}
+                    </span>
+                    {route.executor && (
+                      <a
+                        href={destinationLink(route.executor)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        View destination contract ↗
+                      </a>
+                    )}
+                  </li>
+                </ul>
+              </details>
+            </div>
+            <button
+              type="button"
+              className="refresh-button"
+              disabled={refreshing || Boolean(busy)}
+              onClick={() => void refresh()}
+            >
+              {refreshing ? "Checking…" : "Check again"}
+            </button>
+          </section>
+        )}
         {sourceError && (
           <div role="alert" className="alert">
-            Source: {sourceError}
+            <strong>Source unavailable.</strong> {sourceError}
+            <button
+              type="button"
+              disabled={refreshing || Boolean(busy)}
+              onClick={() => void refresh()}
+            >
+              Retry
+            </button>
           </div>
         )}
         {destError && (
           <div role="alert" className="alert">
-            Destination: {destError}. Source recovery remains available if its
-            RPC is healthy.
+            <strong>Destination unavailable.</strong> {destError} Source
+            recovery remains available when the source is healthy.
+            <button
+              type="button"
+              disabled={refreshing || Boolean(busy)}
+              onClick={() => void refresh()}
+            >
+              Retry
+            </button>
           </div>
         )}
         {error && (
@@ -997,7 +1309,7 @@ export default function Home() {
             {notice}
           </div>
         )}
-        {((data && !sourceReady) || (dest && !destReady)) &&
+        {((data && !sourceFresh) || (dest && !destFresh)) &&
           !sourceError &&
           !destError && (
             <div className="alert" role="status">
@@ -1084,17 +1396,22 @@ export default function Home() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="expiry">Expires in</label>
-                  <select
+                  <label id="expiry-label" htmlFor="expiry">
+                    Expires in
+                  </label>
+                  <SelectField
                     id="expiry"
-                    value={hours}
-                    onChange={(e) => setHours(Number(e.target.value))}
-                  >
-                    <option value={1}>1 hour</option>
-                    <option value={24}>24 hours</option>
-                    <option value={72}>3 days</option>
-                    <option value={168}>7 days</option>
-                  </select>
+                    labelId="expiry-label"
+                    value={String(hours)}
+                    options={[
+                      { value: "1", label: "1 hour" },
+                      { value: "24", label: "24 hours" },
+                      { value: "72", label: "3 days" },
+                      { value: "168", label: "7 days" },
+                    ]}
+                    onChange={(value) => setHours(Number(value))}
+                    disabled={Boolean(busy)}
+                  />
                 </div>
               </div>
               <label className="recipient-label" htmlFor="recipient">
@@ -1135,13 +1452,38 @@ export default function Home() {
                   <strong>Native test ETH, quoted before signing</strong>
                 </span>
               </div>
+              <div className="draft-actions">
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={Boolean(busy)}
+                  onClick={saveDraft}
+                >
+                  Save draft
+                </button>
+                {savedDraft && (
+                  <button
+                    type="button"
+                    className="text-button"
+                    disabled={Boolean(busy)}
+                    onClick={restoreDraft}
+                  >
+                    Restore saved draft
+                  </button>
+                )}
+                <span>Saved only in this browser, for this route.</span>
+              </div>
               {account ? (
                 <button
                   type="submit"
                   className="primary full"
-                  disabled={disabled || !sourceReady}
+                  disabled={disabled || !routeReady}
                 >
-                  Review exact terms
+                  {awaitingPairing
+                    ? "Awaiting route activation"
+                    : !routeReady
+                      ? "Route unavailable"
+                      : "Review exact terms"}
                 </button>
               ) : (
                 <button
@@ -1165,9 +1507,9 @@ export default function Home() {
                   <p>On-chain eligibility reference</p>
                 </div>
                 <span
-                  className={`live-label ${destReady && dest?.price ? "is-live" : ""}`}
+                  className={`live-label ${destFresh && dest?.price ? "is-live" : ""}`}
                 >
-                  {destReady && dest?.price ? "Fresh" : "Unavailable"}
+                  {destFresh && dest?.price ? "Fresh" : "Unavailable"}
                 </span>
               </div>
               <div className="market-price">
@@ -1197,6 +1539,19 @@ export default function Home() {
                 </div>
               )}
             </section>
+            <TradeCheck
+              principal={principal}
+              amountIn={solverInput}
+              minOutput={minimum}
+              livePrice={destFresh ? (dest?.price ?? null) : null}
+              onMinimum={setMinimum}
+              disabled={Boolean(busy)}
+              feeBudget={feeBudgetUsd}
+              onFeeBudget={setFeeBudgetUsd}
+              selfSolving={Boolean(
+                account && equal(solver || route.solver || account, account),
+              )}
+            />
             <section className="balances-panel">
               <h2>Funding & recovery</h2>
               <div className="balance-line">
@@ -1312,10 +1667,10 @@ export default function Home() {
             </div>
             <button
               className="refresh-button"
-              disabled={Boolean(busy)}
+              disabled={Boolean(busy) || refreshing}
               onClick={() => void refresh()}
             >
-              Refresh ↻
+              {refreshing ? "Refreshing…" : "Refresh ↻"}
             </button>
           </div>
           <div className="tabs">
@@ -1342,22 +1697,114 @@ export default function Home() {
               All orders / solver
             </button>
           </div>
+          <div className="activity-tools">
+            <div className="activity-summary" aria-label="Summary of this page">
+              <span>
+                <strong>
+                  {data ? `${amount(summary.lockedPrincipal)} bUSD` : "—"}
+                </strong>{" "}
+                still locked
+              </span>
+              <span>
+                <strong>
+                  {account
+                    ? data
+                      ? `${amount(summary.myClaimablePrincipal)} bUSD`
+                      : "—"
+                    : "Connect wallet"}
+                </strong>{" "}
+                {account ? "claimable to you" : "to see your claims"}
+              </span>
+              <span>
+                <strong>{data ? summary.needsAction : "—"}</strong> need a next
+                step
+              </span>
+            </div>
+            <p className="activity-scope">
+              Summary, filters and export cover this page of up to 10 orders.
+              Use Older to inspect earlier orders.
+            </p>
+            <div className="activity-controls">
+              <div>
+                <label htmlFor="order-search">Search this page</label>
+                <input
+                  id="order-search"
+                  className="recipient-input"
+                  type="search"
+                  maxLength={100}
+                  placeholder="Order ID or wallet address"
+                  value={orderSearch}
+                  onChange={(e) => setOrderSearch(e.target.value)}
+                />
+              </div>
+              <div>
+                <label id="activity-filter-label" htmlFor="activity-filter">
+                  Show orders
+                </label>
+                <SelectField
+                  id="activity-filter"
+                  labelId="activity-filter-label"
+                  value={activityFilter}
+                  options={[
+                    { value: "all", label: "All statuses" },
+                    { value: "action", label: "Next step available" },
+                    { value: "active", label: "In progress" },
+                    { value: "complete", label: "Claim transferred" },
+                  ]}
+                  onChange={setActivityFilter}
+                />
+              </div>
+              <button
+                type="button"
+                className="secondary compact"
+                disabled={!data?.rows.length}
+                onClick={exportOrders}
+              >
+                Export page CSV
+              </button>
+            </div>
+          </div>
           {!data?.rows.length ? (
             <div className="empty-state">
               <div className="empty-icon">⇄</div>
               <h3>
-                {account
-                  ? "No orders on this page"
-                  : "Connect to see your orders"}
+                {refreshing && !data
+                  ? "Loading orders…"
+                  : sourceError
+                    ? "Orders could not load"
+                    : !route.configured
+                      ? "Route not available yet"
+                      : account
+                        ? "No orders on this page"
+                        : "Connect to see your orders"}
               </h3>
               <p>
-                Create an order or switch to all orders to inspect solver
-                opportunities.
+                {sourceError
+                  ? "Retry the source connection above. Your on-chain orders are unchanged."
+                  : "Create an order or switch to all orders to inspect solver opportunities."}
               </p>
+            </div>
+          ) : !visibleRows.length ? (
+            <div className="empty-state">
+              <h3>No matching orders on this page</h3>
+              <p>
+                Try another status, clear your search, or use the page controls
+                below.
+              </p>
+              <button
+                type="button"
+                className="secondary compact"
+                onClick={() => {
+                  setOrderSearch("");
+                  setActivityFilter("all");
+                }}
+              >
+                Clear filters
+              </button>
             </div>
           ) : (
             <div className="cross-order-list">
-              {data.rows.map((row) => {
+              {visibleRows.map((row) => {
                 const s = row.source,
                   d = row.destination,
                   expired = now >= Number(s.terms.deadline) * 1000;
@@ -1366,6 +1813,7 @@ export default function Home() {
                   s.state === 3 ? s.terms.solver : s.terms.owner;
                 const canCancel = equal(account, s.terms.owner) || expired;
                 const assigned = equal(account, s.terms.solver);
+                const insight = getOrderInsight(row, now, account);
                 const sourceAction = (
                   functionName: string,
                   text: string,
@@ -1424,6 +1872,12 @@ export default function Home() {
                             : "Destination state unavailable"}
                         </strong>
                       </div>
+                    </div>
+                    <div
+                      className={`order-next-step ${insight.needsAction ? "has-next-step" : ""}`}
+                    >
+                      <strong>{insight.title}</strong>
+                      <p>{insight.detail}</p>
                     </div>
                     <p className="order-meta">
                       Trigger ≤ ${amount(s.terms.maxPrice, 18, 2)} · Solver
@@ -1680,77 +2134,7 @@ export default function Home() {
             </div>
           </section>
         )}
-        <section className="how-section" id="how-it-works" data-reveal>
-          <div>
-            <span className="small-tag">From intent to execution</span>
-            <h2>
-              Two chains.
-              <br />
-              One clear path.
-            </h2>
-            <p>
-              Execution and payment have separate confirmations. Follow your
-              order from source escrow to destination delivery.
-            </p>
-            <a className="secondary" href="#workspace">
-              Create an order <ArrowIcon />
-            </a>
-          </div>
-          <ol>
-            <li>
-              <span className="step-number">01</span>
-              <div>
-                <h3>Lock and register</h3>
-                <p>
-                  The source stores your terms and sends CREATE through CCIP.
-                  Until the destination receives it, your order cannot fill
-                  there.
-                </p>
-              </div>
-            </li>
-            <li>
-              <span className="step-number">02</span>
-              <div>
-                <h3>Fill or cancel on the destination</h3>
-                <p>
-                  The first confirmed terminal outcome wins. A fill can beat a
-                  source cancellation request. Swaps must satisfy both the fresh
-                  trigger and minimum output.
-                </p>
-              </div>
-            </li>
-            <li>
-              <span className="step-number">03</span>
-              <div>
-                <h3>Send the receipt, then claim</h3>
-                <p>
-                  Anyone can pay to dispatch or retry a stored terminal receipt.
-                  Only its authenticated arrival unlocks a source payment or
-                  refund. An outage can delay recovery indefinitely.
-                </p>
-              </div>
-            </li>
-          </ol>
-        </section>
-        <section className="closing-section" data-reveal>
-          <span className="small-tag">Built for your next move</span>
-          <div>
-            <h2>
-              Less watching.
-              <br />
-              More doing.
-            </h2>
-            <a
-              className="closing-link"
-              href="#workspace"
-              aria-label="Go to trading workspace"
-            >
-              <ArrowIcon />
-            </a>
-          </div>
-          <p>Set the conditions. Let the chains do the talking.</p>
-        </section>
-        <footer>
+        <footer className="app-footer">
           <a className="footer-brand" href="/" aria-label="Bisharp home">
             <BrandMark />
             bisharp.
@@ -1759,6 +2143,14 @@ export default function Home() {
             Unaudited testnet release candidate · no production guarantees
           </span>
           <div>
+            <Link
+              href="/how-it-works"
+              target="_blank"
+              rel="noopener"
+              aria-label="How it works (opens in a new tab)"
+            >
+              How it works ↗
+            </Link>
             {route.escrow && (
               <a
                 href={sourceLink(route.escrow)}
@@ -1874,6 +2266,59 @@ export default function Home() {
                 <dd>Separate · wallet estimate</dd>
               </div>
             </dl>
+            {review.terms && review.protection && (
+              <div className="review-protection">
+                <h3>Minimum protection check</h3>
+                <p>
+                  At your ${formatUnits(review.terms.maxPrice, 18)} trigger
+                  reference, the accepted minimum is worth{" "}
+                  <strong>
+                    ${formatDecimal(review.protection.minimumValueUsd ?? 0n, 6)}
+                  </strong>{" "}
+                  against{" "}
+                  {formatDecimal(
+                    review.protection.totalCostUsd ??
+                      review.protection.principal,
+                    6,
+                  )}{" "}
+                  {review.protection.totalCostUsd === null
+                    ? "bUSD of input cost, before fees"
+                    : "USD of input cost and your fee estimate"}
+                  .
+                </p>
+                {review.selfSolving && (
+                  <p>
+                    You supply destination inventory as the solver. Source
+                    principal stays locked until settlement, then returns to you
+                    as solver payment.
+                  </p>
+                )}
+                <p>
+                  A fill may deliver only the accepted minimum. Lower prices
+                  reduce its reference value. USD math assumes bUSD = $1; this
+                  is not a promise of returns or a fill.
+                </p>
+                {review.protection.feeBudgetUsd !== null && (
+                  <p>
+                    Your fee scenario: $
+                    {formatDecimal(review.protection.feeBudgetUsd, 6)} total.
+                    This estimate does not cap transaction fees.
+                  </p>
+                )}
+                {protectionShortfall && (
+                  <label className="accept-terms">
+                    <input
+                      type="checkbox"
+                      checked={acceptedProtection}
+                      onChange={(e) => setAcceptedProtection(e.target.checked)}
+                    />
+                    I understand the minimum permits a value $
+                    {formatDecimal(-protectionDelta!, 6)} below this cost at the
+                    trigger reference.
+                  </label>
+                )}
+              </div>
+            )}
             <p className="modal-warning">
               Unspent fee funding becomes a claimable native credit. Message
               fees already spent are nonrefundable. A cancellation request is
@@ -1904,7 +2349,9 @@ export default function Home() {
               disabled={
                 disabled ||
                 !accepted ||
+                (protectionShortfall && !acceptedProtection) ||
                 (review.action.side === "source" ? !sourceReady : !destReady) ||
+                Boolean(review.terms && !routeReady) ||
                 Boolean(
                   review.terms &&
                     Number(review.terms.deadline) * 1000 <= now + 300000,

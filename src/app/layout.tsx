@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import "./cross.css";
+import "./product.css";
+import "./workspace.css";
 
 const display = localFont({
   src: "../../public/fonts/pp-neue-corp-compact-ultrabold.woff2",

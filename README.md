@@ -8,7 +8,7 @@
 
 Conditional cross-chain orders with **Next.js, Foundry, Chainlink CCIP 2.0 and Uniswap v3**. User principal stays in a source escrow; a designated solver supplies destination tokens and swaps them to the user's fixed recipient. An authenticated terminal receipt allocates either solver payment or a user refund on the source.
 
-**Current status: locally tested release candidate, not production-audited.** Public testnet contracts are deployed and source-verified; irreversible peer pairing awaits approval, so the route is not active yet. Source repository: [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp). The working two-node local demo uses real Uniswap bytecode, a fixed local oracle and an explicitly unauthenticated transport fixture. It does not establish live CCIP delivery or prize eligibility. Testnet funds have been used for the recorded public deployments and pool liquidity.
+**Current status: locally tested release candidate, not production-audited.** Public testnet contracts are deployed, source-verified, and permanently paired. The public route verifier passes; a live CCIP order round trip remains untested. Source repository: [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp). The working two-node local demo uses real Uniswap bytecode, a fixed local oracle and an explicitly unauthenticated transport fixture. It does not establish live CCIP delivery or prize eligibility. Testnet funds have been used for the recorded public deployments and pool liquidity.
 
 ## Run the complete local demo
 
@@ -128,12 +128,12 @@ node scripts/test-report.mjs deployments/local-test-results.json 0x6d756d626169
 
 Recorded results: [reports/foundry-results.json](reports/foundry-results.json), [reports/GAS.md](reports/GAS.md), [.gas-snapshot](.gas-snapshot), [deployments/local-smoke-summary.json](deployments/local-smoke-summary.json). Raw test logs are excluded from Git; the summary contains no keys. Tests include real official Uniswap pool bytecode, fuzzed 6/18-decimal amount conservation and output, adversarial message ordering/replay/races, stalled return receipts, invalid oracle answers, sequencer recovery boundaries, frozen claims, token callbacks, exposure caps and source solvency. Frontend input/route tests reject silent rounding, invalid identities, overflows, same-chain/mainnet/duplicate/mixed routes.
 
-The build checker verifies that locally configured deployment keys are absent from public static assets; it never prints their values. This is a targeted check, not a substitute for independent review. Eight frontend/API tests cover inputs, routes and the local faucet boundary. Run the commands above locally to verify contracts, frontend behavior, the production build and the two-chain integration.
+The build checker verifies that locally configured deployment keys are absent from public static assets; it never prints their values. This is a targeted check, not a substitute for independent review. Frontend/API tests cover inputs, route readiness and pairing, and the local faucet boundary. Run the commands above locally to verify contracts, frontend behavior, the production build and the two-chain integration.
 
 ## Deploy the frontend on Netlify
 
 Hosted frontend: [bisharp.netlify.app](https://bisharp.netlify.app/). Hosting is
-complete; contract pairing and public CCIP round-trip validation remain pending.
+complete; both contracts are paired and public route verification passes. Public CCIP round-trip validation remains pending.
 
 Import [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp) and select
 branch `main`. Leave the base directory at the repository root. The checked-in
@@ -157,9 +157,7 @@ Set `NEXT_PUBLIC_SOURCE_ADDRESS` to the verified Ethereum Sepolia SourceEscrow
 and `NEXT_PUBLIC_DESTINATION_ADDRESS` to its paired OP Sepolia DestinationExecutor.
 They must be public-chain deployments, not addresses from the local Anvil demo.
 Public addresses and current pairing status are recorded in
-[deployments/README.md](deployments/README.md). Keep both addresses unset until
-pairing is complete; the interface shows
-an unconfigured route and disables order creation until valid deployments are set.
+[deployments/README.md](deployments/README.md). The recorded public pair is activated. For future routes, verify both counterparts before enabling order creation.
 
 `NEXT_PUBLIC_SOLVER_ADDRESS` is optional; without it, the order form defaults to
 the connected wallet. For additional deployed routes use `NEXT_PUBLIC_ROUTES_JSON`

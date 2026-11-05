@@ -8,10 +8,15 @@
 .route-selector label {
   flex-shrink: 0;
 }
-.route-selector select {
+.route-selector .select-field {
   max-width: 460px;
+}
+.route-selector .select-trigger {
   background: var(--surface);
-  border: 0;
+  border-color: transparent;
+}
+.route-selector .select-trigger[aria-expanded="true"] {
+  border-color: var(--ink);
 }
 .route-selector > span {
   margin-left: auto;
@@ -20,6 +25,71 @@
 }
 .spaced {
   margin-top: 18px;
+}
+.route-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 24px;
+  margin-bottom: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+}
+.route-status-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-sulfur);
+  font-size: 22px;
+}
+.route-status-copy {
+  flex: 1;
+  min-width: 0;
+}
+.route-status-title {
+  font-size: 16px;
+  margin: 0 0 6px;
+}
+.route-status-copy > p:not(.route-status-title) {
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 74ch;
+}
+.route-status-details {
+  margin-top: 16px;
+  font-size: 12px;
+}
+.route-status-details summary {
+  cursor: pointer;
+  width: fit-content;
+  min-height: 32px;
+  padding: 4px 0;
+}
+.route-status-details ul {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.route-status-details li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding-top: 10px;
+  border-top: 1px dotted var(--line);
+}
+.route-status-details li > span:nth-child(2) {
+  color: var(--muted);
+}
+.route-status-details a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  margin-left: auto;
 }
 .cross-order {
   padding: 28px 36px;
@@ -152,9 +222,32 @@
   }
 }
 @media (max-width: 560px) {
-  .route-selector select {
+  .route-selector .select-field {
     max-width: 100%;
+  }
+  .select-trigger {
+    font-size: 16px;
+  }
+  .route-selector .select-trigger {
     font-size: 14px;
+  }
+  .route-status {
+    flex-wrap: wrap;
+    padding: 20px;
+    gap: 12px;
+  }
+  .route-status-copy {
+    flex-basis: calc(100% - 54px);
+  }
+  .route-status > .refresh-button {
+    margin-left: 52px;
+  }
+  .route-status-details li {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .route-status-details a {
+    margin-left: 0;
   }
   .cross-order {
     padding: 24px 20px;

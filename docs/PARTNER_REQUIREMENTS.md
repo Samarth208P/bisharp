@@ -3,7 +3,7 @@
 User-selected targets: **Chainlink CCIP 2.0** and **Uniswap Foundation**. The supplied prize JSON is supporting material; current authoritative rules are the [ETHGlobal Mumbai prize page](https://ethglobal.com/events/mumbai/prizes), checked 2026-11-05. Recheck at submission time. Prize selection, eligibility and judging are not guaranteed by this repository.
 
 Hosted frontend: [bisharp.netlify.app](https://bisharp.netlify.app/). Public
-contract addresses and the pending pairing status are recorded in
+contract addresses and confirmed pairing status are recorded in
 [deployments/README.md](../deployments/README.md). Hosting alone does not prove
 public CCIP delivery or a public order fill.
 
@@ -11,7 +11,7 @@ public CCIP delivery or a public order fill.
 
 - Required: CCIP used inside smart contracts to cause an on-chain state change. Price-feed reads alone do not qualify.
 - Intended evidence: authenticated CREATE from Ethereum Sepolia registers an order on OP Sepolia; destination FILLED/CANCELLED receipts allocate exactly one source entitlement. Retain source transactions, CCIP message IDs, destination execution transactions, contract addresses, verified source and configuration.
-- Current status: **implemented and tested locally; public criterion not yet met**. SourceEscrow and DestinationExecutor use pinned CCIP 2.0 contracts, V3 arguments and authenticated terminal receipts. Both main contracts are publicly deployed and source-verified; pairing and real public CCIP execution evidence remain outstanding. The local transport fixture cannot satisfy the on-chain CCIP requirement.
+- Current status: **implemented and tested locally; public criterion not yet met**. SourceEscrow and DestinationExecutor use pinned CCIP 2.0 contracts, V3 arguments and authenticated terminal receipts. Both main contracts are publicly deployed, source-verified, and permanently paired; real public CCIP execution evidence remains outstanding. The local transport fixture cannot satisfy the on-chain CCIP requirement.
 - CRE is a separate track; no CRE workflow is claimed.
 
 ## Uniswap Foundation: Build with Uniswap

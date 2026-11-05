@@ -5,8 +5,28 @@ import { createPublicClient, encodeAbiParameters, http, parseAbi } from "viem";
 try {
   loadEnvFile(".env.local");
 } catch {}
-const { configuredRoutes } = await import("../src/lib/routes.ts");
-const config = configuredRoutes();
+const { configuredRoutes, parseRoutes } = await import("../src/lib/routes.ts");
+// Explicit public verification must not accidentally validate .env.local's Anvil demo.
+const publicDeployment = process.argv.includes("--public")
+  ? JSON.parse(await readFile("deployments/public-status.json", "utf8"))
+  : undefined;
+const config = publicDeployment
+  ? {
+      routes: parseRoutes(
+        JSON.stringify([
+          {
+            id: "sepolia-op",
+            sourceChainId: publicDeployment.sourceChainId,
+            destinationChainId: publicDeployment.destinationChainId,
+            escrow: publicDeployment.source,
+            executor: publicDeployment.destination,
+            solver: publicDeployment.solver,
+          },
+        ]),
+      ),
+      error: undefined,
+    }
+  : configuredRoutes();
 if (config.error) throw new Error(config.error);
 const sourceAbi = JSON.parse(
   await readFile("out/SourceEscrow.sol/SourceEscrow.json", "utf8"),

@@ -3,7 +3,82 @@ import assert from "node:assert/strict";
 import { orderInput } from "../src/lib/order-input.ts";
 import { parseRoutes } from "../src/lib/routes.ts";
 import { POST } from "../src/app/api/local/fund/route.ts";
+import {
+  inspectPairing,
+  isFreshSnapshot,
+  canUseRouteSide,
+} from "../src/lib/route-health.ts";
 const wallet = "0x0000000000000000000000000000000000000001";
+const zero = "0x0000000000000000000000000000000000000000";
+const pairing = {
+  peer: wallet as `0x${string}`,
+  expectedPeer: wallet as `0x${string}`,
+  authority: zero as `0x${string}`,
+  local: 1n,
+  remote: 2n,
+  expectedLocal: 1n,
+  expectedRemote: 2n,
+};
+
+test("unpaired deployments are pending only when selectors and activation authority are valid", () => {
+  assert.equal(
+    inspectPairing({ ...pairing, peer: zero, authority: wallet }),
+    "pending",
+  );
+  assert.throws(
+    () => inspectPairing({ ...pairing, peer: zero }),
+    /no paired counterpart/,
+  );
+  assert.throws(
+    () =>
+      inspectPairing({ ...pairing, peer: zero, authority: wallet, remote: 9n }),
+    /network configuration/,
+  );
+});
+
+test("wrong counterpart, reversed selectors, and unfinished pairing never become ready", () => {
+  assert.throws(
+    () =>
+      inspectPairing({
+        ...pairing,
+        peer: "0x0000000000000000000000000000000000000002",
+      }),
+    /different counterpart/,
+  );
+  assert.throws(
+    () => inspectPairing({ ...pairing, local: 2n, remote: 1n }),
+    /network configuration/,
+  );
+  assert.throws(
+    () => inspectPairing({ ...pairing, authority: wallet }),
+    /not been finalized/,
+  );
+  assert.equal(inspectPairing(pairing), "ready");
+});
+
+test("readable pending routes cannot authorize transactions", () => {
+  const pending = { pairing: "pending" as const, at: 1000 };
+  assert.equal(isFreshSnapshot(pending, "", 2000), true);
+  assert.equal(canUseRouteSide(pending, "", 2000), false);
+});
+
+test("stale, missing, future, and failed route snapshots cannot authorize transactions", () => {
+  const ready = { pairing: "ready" as const, at: 1000 };
+  assert.equal(canUseRouteSide(ready, "", 45_999), true);
+  assert.equal(canUseRouteSide(ready, "", 46_000), false);
+  assert.equal(canUseRouteSide(ready, "", 999), false);
+  assert.equal(canUseRouteSide(ready, "RPC unavailable", 2000), false);
+  assert.equal(canUseRouteSide(undefined, "", 2000), false);
+});
+
+test("a destination outage does not disable a verified source recovery", () => {
+  const ready = { pairing: "ready" as const, at: 1000 };
+  const sourceReady = canUseRouteSide(ready, "", 2000);
+  const destinationReady = canUseRouteSide(ready, "RPC unavailable", 2000);
+  assert.equal(sourceReady, true);
+  assert.equal(destinationReady, false);
+  assert.equal(sourceReady && destinationReady, false);
+});
 const input = {
   owner: wallet as `0x${string}`,
   recipient: "",

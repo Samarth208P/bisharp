@@ -145,7 +145,7 @@ export function parseRoutes(json?: string): Route[] {
       entry.sourceChainId === entry.destinationChainId ||
       !escrow ||
       !executor ||
-      (entry.solver && !solver)
+      (entry.solver !== undefined && entry.solver !== "" && !solver)
     )
       throw new Error(
         `Invalid route configuration: ${entry.id}. Use supported, distinct testnets and deployed addresses.`,
@@ -167,7 +167,28 @@ export function configuredRoutes(): { routes: Route[]; error?: string } {
     const routes = parseRoutes(process.env.NEXT_PUBLIC_ROUTES_JSON);
     if (routes.length) return { routes };
     const escrow = address(process.env.NEXT_PUBLIC_SOURCE_ADDRESS),
-      executor = address(process.env.NEXT_PUBLIC_DESTINATION_ADDRESS);
+      executor = address(process.env.NEXT_PUBLIC_DESTINATION_ADDRESS),
+      solver = address(process.env.NEXT_PUBLIC_SOLVER_ADDRESS);
+    for (const [name, rawValue, parsed] of [
+      [
+        "NEXT_PUBLIC_SOURCE_ADDRESS",
+        process.env.NEXT_PUBLIC_SOURCE_ADDRESS,
+        escrow,
+      ],
+      [
+        "NEXT_PUBLIC_DESTINATION_ADDRESS",
+        process.env.NEXT_PUBLIC_DESTINATION_ADDRESS,
+        executor,
+      ],
+      [
+        "NEXT_PUBLIC_SOLVER_ADDRESS",
+        process.env.NEXT_PUBLIC_SOLVER_ADDRESS,
+        solver,
+      ],
+    ] as const) {
+      if (rawValue && !parsed)
+        throw new Error(`${name} must be a valid, nonzero EVM address.`);
+    }
     return {
       routes: [
         {
@@ -177,7 +198,7 @@ export function configuredRoutes(): { routes: Route[]; error?: string } {
           destination: networks[optimismSepolia.id],
           escrow,
           executor,
-          solver: address(process.env.NEXT_PUBLIC_SOLVER_ADDRESS),
+          solver,
           configured: Boolean(escrow && executor),
         },
       ],

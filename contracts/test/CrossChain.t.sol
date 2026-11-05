@@ -407,6 +407,19 @@ contract CrossChainTest {
         require(destUsd.balanceOf(SOLVER) == 1000e6, "solver funding untouched");
     }
 
+    function testDestinationExecutorCannotBeSolver() public {
+        O.Terms memory t = terms(100e6);
+        t.solver = address(destination);
+        uint256 beforePrincipal = usd.balanceOf(USER);
+        uint256 beforeNative = USER.balance;
+        vm.prank(USER);
+        vm.expectRevert(SourceEscrow.InvalidTerms.selector);
+        source.createOrder{value: 1e12}(t, 400_000);
+        require(source.orderCount() == 0 && source.totalLiability() == 0, "no unfillable order");
+        require(usd.balanceOf(USER) == beforePrincipal && USER.balance == beforeNative, "no funding spent");
+        require(transport.count() == 0, "no message charged");
+    }
+
     function testDestinationRejectsInvalidOracleAnswers() public {
         uint256 id = create();
         transport.deliver(0);

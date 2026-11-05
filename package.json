@@ -12,7 +12,7 @@
     "contracts:test": "node scripts/forge.mjs test -vv",
     "abi": "node scripts/export-abi.mjs",
     "smoke:local": "node scripts/smoke-local.mjs",
-    "test:ui": "node --experimental-strip-types tests/input.test.ts",
+    "test:ui": "node --experimental-strip-types --test tests/*.test.ts",
     "demo:local": "node scripts/local-demo.mjs",
     "test:integration": "node scripts/local-demo.mjs --smoke",
     "test:report": "node scripts/test-report.mjs",

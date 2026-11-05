@@ -27,6 +27,7 @@ keystores/
 npm-debug.log*
 playwright-report/
 test-results/
+.impeccable/review/
 deployments/*test-results.json
 deployments/local-source.json
 deployments/local-destination.json

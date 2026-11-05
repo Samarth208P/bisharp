@@ -163,5 +163,29 @@
     "blockNumber": "51052220",
     "gasUsed": "2158055",
     "contractAddress": "0x975789fe1af96a39efa2e8ff42e534c26bfb9670"
+  },
+  {
+    "operation": "pairSource",
+    "chainId": 11155111,
+    "contract": "SourceEscrow",
+    "type": "CALL",
+    "contractAddress": "0x2334a8c6f8807C4bD6452199835A366Ee840D2e7",
+    "peer": "0x975789FE1aF96a39efa2E8FF42e534C26bfB9670",
+    "hash": "0xe3e17fd3d74ab2529dc272b09c0352652c6f026385f703a34e37b78ff51063bb",
+    "status": "success",
+    "blockNumber": "12071754",
+    "gasUsed": "128110"
+  },
+  {
+    "operation": "pairDestination",
+    "chainId": 11155420,
+    "contract": "DestinationExecutor",
+    "type": "CALL",
+    "contractAddress": "0x975789FE1aF96a39efa2E8FF42e534C26bfB9670",
+    "peer": "0x2334a8c6f8807C4bD6452199835A366Ee840D2e7",
+    "hash": "0x92948ab68a6fc1045acf92fa6299efb2b4223dd136daa4835371c946a4d8e1e0",
+    "status": "success",
+    "blockNumber": "51053438",
+    "gasUsed": "45728"
   }
 ]

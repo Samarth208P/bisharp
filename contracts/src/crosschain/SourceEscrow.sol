@@ -69,7 +69,7 @@ contract SourceEscrow is CCIPLane {
     function createOrder(O.Terms calldata terms, uint32 gasLimit) external payable nonReentrant returns (uint256 id) {
         if (
             terms.owner != msg.sender || terms.recipient == address(0) || terms.recipient == peer
-                || terms.solver == address(0) || terms.solver == address(this)
+                || terms.solver == address(0) || terms.solver == address(this) || terms.solver == peer
                 || terms.principal == 0 || terms.principal > maxPrincipal
                 || terms.amountIn == 0 || terms.minOutput == 0 || terms.maxPrice == 0
                 || terms.deadline < block.timestamp + 5 minutes || terms.deadline > block.timestamp + 30 days

@@ -196,6 +196,9 @@ try {
         "--rpc-url",
         endpoint.rpc,
         "--broadcast",
+        // Serialize unlocked sends: batched local submissions can be assigned
+        // mismatched nonces and leave the remaining deployment queue stranded.
+        "--slow",
         "--unlocked",
         "--sender",
         developer,
