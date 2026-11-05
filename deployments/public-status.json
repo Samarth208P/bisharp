@@ -1,0 +1,26 @@
+{
+  "networks": "testnet only",
+  "sourceChainId": 11155111,
+  "destinationChainId": 11155420,
+  "source": "0x2334a8c6f8807C4bD6452199835A366Ee840D2e7",
+  "destination": "0x975789FE1aF96a39efa2E8FF42e534C26bfB9670",
+  "solver": "0xdA600Dcd13E8BaB17E3c5f35242d840B8c88cB92",
+  "pairing": "awaiting explicit approval; both peers remain zero",
+  "publicCCIPRoundTrip": "not performed",
+  "poolSeedETH": "0.03",
+  "checks": [
+    "deployment receipts successful",
+    "code present at both addresses",
+    "chain IDs, router addresses and selectors match",
+    "pool tokens and fee tier verified; liquidity positive",
+    "destination currentPrice is positive and fresh",
+    "both V3 native-fee router quotes succeeded"
+  ],
+  "sourceVerification": {
+    "provider": "Sourcify",
+    "source": "exact_match",
+    "destination": "exact_match",
+    "sourceJob": "74ec4bd0-4afb-4f01-ab67-65cfb3059982",
+    "destinationJob": "63992472-8c6a-4793-8f26-f2b1e7b54712"
+  }
+}

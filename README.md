@@ -2,7 +2,7 @@
 
 Conditional cross-chain orders with **Next.js, Foundry, Chainlink CCIP 2.0 and Uniswap v3**. User principal stays in a source escrow; a designated solver supplies destination tokens and swaps them to the user's fixed recipient. An authenticated terminal receipt allocates either solver payment or a user refund on the source.
 
-**Current status: locally tested release candidate, not production-audited.** Public testnet deployment remains deferred. Source repository: [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp). The working two-node local demo uses real Uniswap bytecode, a fixed local oracle and an explicitly unauthenticated transport fixture. It does not establish live CCIP delivery or prize eligibility. Funded Ethereum/OP Sepolia wallets have not been spent by this work.
+**Current status: locally tested release candidate, not production-audited.** Public testnet contracts are deployed and source-verified; irreversible peer pairing awaits approval, so the route is not active yet. Source repository: [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp). The working two-node local demo uses real Uniswap bytecode, a fixed local oracle and an explicitly unauthenticated transport fixture. It does not establish live CCIP delivery or prize eligibility. Funded Ethereum/OP Sepolia wallets have not been spent by this work.
 
 ## Run the complete local demo
 
@@ -147,8 +147,9 @@ NEXT_PUBLIC_DESTINATION_ADDRESS=
 Set `NEXT_PUBLIC_SOURCE_ADDRESS` to the verified Ethereum Sepolia SourceEscrow
 and `NEXT_PUBLIC_DESTINATION_ADDRESS` to its paired OP Sepolia DestinationExecutor.
 They must be public-chain deployments, not addresses from the local Anvil demo.
-No public deployments are currently recorded in this repository. You may leave
-both addresses unset for an initial frontend deployment; the interface shows
+Public addresses and current pairing status are recorded in
+[deployments/README.md](deployments/README.md). Keep both addresses unset until
+pairing is complete; the interface shows
 an unconfigured route and disables order creation until valid deployments are set.
 
 `NEXT_PUBLIC_SOLVER_ADDRESS` is optional; without it, the order form defaults to
@@ -167,7 +168,7 @@ contracts, run a solver or establish live CCIP delivery. GitHub Actions are not 
 
 `contracts/script/DeployCross.s.sol` prepares Ethereum Sepolia → OP Sepolia using official CCIP routers, OP's canonical v3 factory/position manager/WETH, the verified ETH/USD proxy and a locally deployed unchanged official original SwapRouter artifact. The original router ABI has a deadline and must **not** be replaced with SwapRouter02's different ABI. The destination script seeds at most 0.03 OP Sepolia ETH of test liquidity with minimum-amount protection. It checks chain IDs, deployed dependencies and feed freshness. See [deployments/README.md](deployments/README.md).
 
-No broadcast is needed for local work. When public deployment is explicitly resumed, simulate first, verify manifests/code and selected lane version/finality, deploy, pair both sides once, and run authenticated CREATE/FILLED/CANCELLED round trips before claiming live integration. The disposable testnet key is in Git-ignored `.env`; the script supports an explicit key there or an encrypted keystore as documented by the original single-chain script. Never publish it or use it with real funds. A simulation's predicted addresses are not deployment evidence.
+The public contracts and funded pool are recorded in `deployments/source.json`, `deployments/destination.json` and `deployments/public-transactions.json`. Both main contracts have exact-match Sourcify verification. Pairing is still pending explicit approval; authenticated CREATE/FILLED/CANCELLED round trips remain outstanding. No broadcast is needed for local work. The disposable testnet key is in Git-ignored `.env`; the script supports an explicit key there or an encrypted keystore as documented by the original single-chain script. Never publish it or use it with real funds. A simulation's predicted addresses are not deployment evidence.
 
 ## Partner requirements
 
@@ -175,6 +176,6 @@ Targets: **Chainlink CCIP 2.0** and **Uniswap Foundation**. See [docs/PARTNER_RE
 
 - Chainlink integration code is implemented and tested locally. Actual CCIP 2.0 on-chain state-change/message evidence remains outstanding; the local mock cannot satisfy it.
 - Uniswap v3 integration is implemented and exercised against official bytecode, including the two-node demo. `FEEDBACK.md` is present. Repository: [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp). The repository is public; the developer feedback form remains outstanding.
-- Public hosting, explorer source verification, event eligibility, a recorded demo and submission are separate remaining tasks. No partner form, public deployment or competition submission has been performed.
+- Public hosting, explorer source verification, event eligibility, a recorded demo and submission are separate remaining tasks. No partner form or competition submission has been performed. Public deployments are recorded separately; live CCIP round-trip evidence remains outstanding.
 
 The earlier `Bisharp.sol` single-chain implementation remains only as a tested reference; the main UI and new contracts use the cross-chain lifecycle.

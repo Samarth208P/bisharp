@@ -1,0 +1,167 @@
+[
+  {
+    "operation": "initialSourceDeploymentAttempt",
+    "chainId": 11155111,
+    "contract": "TestToken",
+    "type": "CREATE",
+    "status": "reverted",
+    "reason": "Foundry script gas allowance below RPC-estimated requirement",
+    "hash": "0xf5c08e25d1d338b498be98716c0166f5df30f117093b87b3344dd658fbbaaf12",
+    "blockNumber": "12071537",
+    "gasUsed": "1493286"
+  },
+  {
+    "operation": "initialSourceDeploymentAttempt",
+    "chainId": 11155111,
+    "contract": "TestToken",
+    "type": "CREATE",
+    "status": "reverted",
+    "reason": "Foundry script gas allowance below RPC-estimated requirement",
+    "hash": "0xc5780465cc5de3dd5fc5deabfd4579d41c088d9ffc23763a6e3a4cdbd6f0c301",
+    "blockNumber": "12071533",
+    "gasUsed": "647090"
+  },
+  {
+    "operation": "deploySource",
+    "chainId": 11155111,
+    "contract": "TestToken",
+    "type": "CREATE",
+    "hash": "0x7d1a50dc84bb18cb7e2da136fe22f659be71dfed9acd93a525aff6c33afb8fe6",
+    "status": "success",
+    "blockNumber": "12071547",
+    "gasUsed": "3186828",
+    "contractAddress": "0xce428b858888266aab6edc7f506cf5fd8867d973"
+  },
+  {
+    "operation": "deploySource",
+    "chainId": 11155111,
+    "contract": "SourceEscrow",
+    "type": "CREATE",
+    "hash": "0x9c293740d6c7de3facaeeced474454e84a2415c489824733b67a09b7f4f5b139",
+    "status": "success",
+    "blockNumber": "12071548",
+    "gasUsed": "15764253",
+    "contractAddress": "0x2334a8c6f8807c4bd6452199835a366ee840d2e7"
+  },
+  {
+    "operation": "deployDestination",
+    "chainId": 11155420,
+    "contract": "TestToken",
+    "type": "CREATE",
+    "hash": "0x254cf8320fb869faa72baf068f7b0d7d5e9b6935a9438c5338508eb5c7e612cc",
+    "status": "success",
+    "blockNumber": "51052190",
+    "gasUsed": "497906",
+    "contractAddress": "0x0f6ea6ee9b3bac16a0d429f2ce7542507b6c7642"
+  },
+  {
+    "operation": "deployDestination",
+    "chainId": 11155420,
+    "contract": null,
+    "type": "CREATE",
+    "hash": "0x3b35964d0f181ac1230a14a8f9927a83f23d6e50d240f1cfca54aa14d6c52bf0",
+    "status": "success",
+    "blockNumber": "51052192",
+    "gasUsed": "2667680",
+    "contractAddress": "0x6d515be1ee292b06f504e51b35fe192af893422d"
+  },
+  {
+    "operation": "deployDestination",
+    "chainId": 11155420,
+    "contract": "TestToken",
+    "type": "CALL",
+    "hash": "0x7cd5f9ac384cd6a2edd8dfc1b28618ab40078ef9c2d2fef2dd806eb4fe4bc1e9",
+    "status": "success",
+    "blockNumber": "51052209",
+    "gasUsed": "67642",
+    "contractAddress": null
+  },
+  {
+    "operation": "deployDestination",
+    "chainId": 11155420,
+    "contract": null,
+    "type": "CALL",
+    "hash": "0xb4b793b3fa15ebc8dd87a616874270ae929a4b8dfa89a05beca13fae025f799e",
+    "status": "success",
+    "blockNumber": "51052210",
+    "gasUsed": "44866",
+    "contractAddress": null
+  },
+  {
+    "operation": "deployDestination",
+    "chainId": 11155420,
+    "contract": "TestToken",
+    "type": "CALL",
+    "hash": "0xc6387d1c8582eb5f3fbf8b3a3dad750015ea6b86e9aef113480a6d449d7ff2b5",
+    "status": "success",
+    "blockNumber": "51052212",
+    "gasUsed": "45921",
+    "contractAddress": null
+  },
+  {
+    "operation": "deployDestination",
+    "chainId": 11155420,
+    "contract": null,
+    "type": "CALL",
+    "hash": "0x353ec0e034be4fde61d6df9674da463c785a65a8ef4013aee296de1ee049d8e5",
+    "status": "success",
+    "blockNumber": "51052213",
+    "gasUsed": "46019",
+    "contractAddress": null
+  },
+  {
+    "operation": "deployDestination",
+    "chainId": 11155420,
+    "contract": null,
+    "type": "CALL",
+    "hash": "0xdfa3011dffa3a8ef66adf1e423f648e374e3416aff33837ab60f47388f58d4c2",
+    "status": "success",
+    "blockNumber": "51052214",
+    "gasUsed": "4613561",
+    "contractAddress": null
+  },
+  {
+    "operation": "deployDestination",
+    "chainId": 11155420,
+    "contract": null,
+    "type": "CALL",
+    "hash": "0x17f3f73ad1778e29ba0b328afca6859856477ee05b5b3668d85b1559a74d04ec",
+    "status": "success",
+    "blockNumber": "51052216",
+    "gasUsed": "596407",
+    "contractAddress": null
+  },
+  {
+    "operation": "deployDestination",
+    "chainId": 11155420,
+    "contract": "TestToken",
+    "type": "CALL",
+    "hash": "0x47ea9c68bf50eec736c2b2f1fa60f0ad93121a5a701c3754caf6abf2b059501a",
+    "status": "success",
+    "blockNumber": "51052217",
+    "gasUsed": "23985",
+    "contractAddress": null
+  },
+  {
+    "operation": "deployDestination",
+    "chainId": 11155420,
+    "contract": null,
+    "type": "CALL",
+    "hash": "0x42587f6169fbac466e46bfb6d07ae2f126335dff00c8d52d1b6a8057f1f6d6a4",
+    "status": "success",
+    "blockNumber": "51052219",
+    "gasUsed": "24059",
+    "contractAddress": null
+  },
+  {
+    "operation": "deployDestination",
+    "chainId": 11155420,
+    "contract": "DestinationExecutor",
+    "type": "CREATE",
+    "hash": "0x8fa59449e239b5af0c8b773d44cf50385087d0cd5035b54a610c8ae54a7304b9",
+    "status": "success",
+    "blockNumber": "51052220",
+    "gasUsed": "2158055",
+    "contractAddress": "0x975789fe1af96a39efa2e8ff42e534c26bfb9670"
+  }
+]
