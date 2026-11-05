@@ -46,6 +46,16 @@ test("reject rounding, negatives, scientific notation, zero and overflow", () =>
   );
   assert.throws(() => orderInput({ ...input, hours: 0 }));
 });
+test("reject invalid order clocks and a zero owner", () => {
+  for (const now of [NaN, Infinity, -1, 0.5, Number.MAX_SAFE_INTEGER + 1])
+    assert.throws(() => orderInput({ ...input, now }));
+  assert.throws(() =>
+    orderInput({
+      ...input,
+      owner: "0x0000000000000000000000000000000000000000",
+    }),
+  );
+});
 const route = {
   id: "eth-op",
   sourceChainId: 11155111,

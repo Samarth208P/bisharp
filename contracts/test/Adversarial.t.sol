@@ -8,12 +8,14 @@ import {MockFeed, Vm} from "./Bisharp.t.sol";
 contract AdversarialToken is TestToken {
     bool public taxed;
     bool public blocked;
+    bool public surcharge;
     address public callbackTarget;
     bool public callbackBlocked;
     constructor(uint8 d) TestToken("Adversarial test token", "TEST", d) {}
     function configure(bool tax, bool blockTransfers, address target) external {
         taxed = tax; blocked = blockTransfers; callbackTarget = target;
     }
+    function setSurcharge(bool enabled) external { surcharge = enabled; }
     function _update(address from, address to, uint256 amount) internal override {
         if (from != address(0) && to != address(0)) {
             require(!blocked, "Token frozen");
@@ -29,6 +31,7 @@ contract AdversarialToken is TestToken {
             }
         }
         super._update(from, to, amount);
+        if (surcharge && from != address(0) && to != address(0)) super._update(from, address(0), amount / 10);
     }
 }
 
@@ -75,6 +78,18 @@ contract AdversarialTest {
         usd.configure(false, false, address(0));
         escrow.claim(address(this));
         require(usd.balanceOf(address(this)) == 1000e6 && escrow.totalLiability() == 0, "recovery succeeds");
+    }
+    function testTaxEnabledAfterDepositCannotUnderpayClaim() public {
+        uint256 id = create();
+        escrow.cancelOrder(id);
+        usd.configure(true, false, address(0));
+        vm.expectRevert(Bisharp.UnsupportedToken.selector);
+        escrow.claim(address(this));
+        require(escrow.credits(address(this)) == 100e6 && escrow.totalLiability() == 100e6, "credit retained");
+        require(usd.balanceOf(address(escrow)) == 100e6, "transfer rolled back");
+        usd.configure(false, false, address(0));
+        escrow.claim(address(this));
+        require(usd.balanceOf(address(this)) == 1000e6, "full payout recovered");
     }
     function testTokenCallbackCannotReenterFill() public {
         uint256 id = create();

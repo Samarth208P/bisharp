@@ -69,7 +69,8 @@ contract SourceEscrow is CCIPLane {
     function createOrder(O.Terms calldata terms, uint32 gasLimit) external payable nonReentrant returns (uint256 id) {
         if (
             terms.owner != msg.sender || terms.recipient == address(0) || terms.recipient == peer
-                || terms.solver == address(0) || terms.principal == 0 || terms.principal > maxPrincipal
+                || terms.solver == address(0) || terms.solver == address(this)
+                || terms.principal == 0 || terms.principal > maxPrincipal
                 || terms.amountIn == 0 || terms.minOutput == 0 || terms.maxPrice == 0
                 || terms.deadline < block.timestamp + 5 minutes || terms.deadline > block.timestamp + 30 days
                 || totalLiability + terms.principal > liabilityCap
@@ -129,7 +130,15 @@ contract SourceEscrow is CCIPLane {
         uint256 amount = o.terms.principal;
         credits[beneficiary] -= amount;
         totalLiability -= amount;
+        uint256 escrowBefore = inputToken.balanceOf(address(this));
+        uint256 beneficiaryBefore = inputToken.balanceOf(beneficiary);
         inputToken.safeTransfer(beneficiary, amount);
+        // A token that starts taxing transfers after deposit must not silently
+        // extinguish the beneficiary's credit or consume another order's funds.
+        if (
+            inputToken.balanceOf(address(this)) + amount != escrowBefore
+                || inputToken.balanceOf(beneficiary) != beneficiaryBefore + amount
+        ) revert UnsupportedToken();
         emit PrincipalClaimed(id, beneficiary, amount);
     }
 }

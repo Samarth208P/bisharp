@@ -24,5 +24,6 @@ jobs:
           FOUNDRY_INVARIANT_RUNS: '1024'
           FOUNDRY_INVARIANT_DEPTH: '128'
       - run: npm run build
+      - run: npm run test:integration
       - run: forge lint contracts/src/crosschain --severity high
       - run: npm run check:public-build

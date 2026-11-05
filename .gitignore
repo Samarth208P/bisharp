@@ -1,14 +1,40 @@
+# Dependencies and generated builds
 node_modules/
 .next/
 out/
+dist/
+build/
 cache/
 broadcast/
-.env
-.env.local
-.env.*.local
-!.env.example
+coverage/
 *.tsbuildinfo
+
+# Local configuration and credentials
+.env*
+!.env.example
+*.pem
+*.key
+keystore/
+keystores/
+.aws/
+.codex/
+.agents/
+
+# Local tooling, logs and test output
 .tools/
+*.log
+npm-debug.log*
 playwright-report/
 test-results/
-deployments/local-test-results.json
+deployments/*test-results.json
+deployments/local-source.json
+deployments/local-destination.json
+
+# Editor and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo

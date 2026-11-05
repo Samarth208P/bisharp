@@ -1,6 +1,6 @@
 # Uniswap integration feedback
 
-Project: Bisharp. Target: ETHGlobal Mumbai, Build with Uniswap. Work recorded 2026-11-05. This file describes actual implementation/testing experience; a developer feedback form has not been submitted and the repository is not yet public at the user's request.
+Project: Bisharp. Target: ETHGlobal Mumbai, Build with Uniswap. Work recorded 2026-11-05. This file describes actual implementation/testing experience; a developer feedback form has not been submitted. Repository: [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp) (public).
 
 ## What we built
 
@@ -26,4 +26,4 @@ Publish a versioned, machine-readable chain deployment example that binds router
 
 ## Evidence and limits
 
-The local two-chain integration exercised real Uniswap bytecode and actual token balance changes, plus successful source settlement and cancellation/refund. Extended deterministic fuzz results are in `reports/foundry-results.json`. Public testnet execution, public source verification, public GitHub availability, live demo hosting and form submission remain separate tasks. We do not invent a time-to-first-success metric or user feedback we did not measure.
+The local two-chain integration exercised real Uniswap bytecode and actual token balance changes, plus successful source settlement and cancellation/refund. Extended deterministic fuzz results are in `reports/foundry-results.json`. Public testnet execution, explorer source verification, live demo hosting and form submission remain separate tasks. We do not invent a time-to-first-success metric or user feedback we did not measure.

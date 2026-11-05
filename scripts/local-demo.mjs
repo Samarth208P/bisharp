@@ -21,9 +21,29 @@ const binary = (name) =>
     `${name}${process.platform === "win32" ? ".exe" : ""}`,
   );
 const developer = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+const smokeOnly = process.argv.includes("--smoke");
+function localPort(value, fallback) {
+  if (value === undefined) return fallback;
+  if (!/^\d+$/.test(value) || Number(value) < 1024 || Number(value) > 65535)
+    throw new Error(
+      "Local demo ports must be integers between 1024 and 65535.",
+    );
+  return Number(value);
+}
+const sourcePort = localPort(process.env.BISHARP_LOCAL_SOURCE_PORT, 8545);
+const destinationPort = localPort(
+  process.env.BISHARP_LOCAL_DESTINATION_PORT,
+  9545,
+);
+if (sourcePort === destinationPort)
+  throw new Error("Local source and destination ports must be distinct.");
+if (!smokeOnly && (sourcePort !== 8545 || destinationPort !== 9545))
+  throw new Error(
+    "Custom ports require --smoke; the browser fixture uses ports 8545 and 9545.",
+  );
 const endpoints = [
-  { id: 31337, port: 8545, selector: 1n, name: "Local source" },
-  { id: 31338, port: 9545, selector: 2n, name: "Local destination" },
+  { id: 31337, port: sourcePort, selector: 1n, name: "Local source" },
+  { id: 31338, port: destinationPort, selector: 2n, name: "Local destination" },
 ].map((e) => ({
   ...e,
   rpc: `http://127.0.0.1:${e.port}`,
@@ -389,36 +409,40 @@ try {
       2,
     ),
   );
-  const routes = [
-    {
-      id: "local-demo",
-      sourceChainId: 31337,
-      destinationChainId: 31338,
-      escrow: source.escrow,
-      executor: destination.executor,
-    },
-  ];
-  let env = await readFile(".env.local", "utf8").catch(() => "");
-  for (const [key, value] of Object.entries({
-    NEXT_PUBLIC_ENABLE_LOCAL: "true",
-    NEXT_PUBLIC_ROUTES_JSON: JSON.stringify(routes),
-  })) {
-    const line = `${key}=${value}`;
-    const pattern = new RegExp(`^${key}=.*$`, "m");
-    env = pattern.test(env)
-      ? env.replace(pattern, line)
-      : `${env.trimEnd()}\n${line}\n`;
-  }
-  await writeFile(".env.local", env.trimStart());
-  console.log(
-    "Public local route configuration written to Git-ignored .env.local. Restart Next.js if needed.",
-  );
-  console.log(
-    "Use an Anvil development account, not the funded testnet wallet. Local relayer is running; Ctrl+C stops both nodes.",
-  );
-  while (!stopping) {
-    await relay();
-    await delay(1500);
+  if (smokeOnly) {
+    stop();
+  } else {
+    const routes = [
+      {
+        id: "local-demo",
+        sourceChainId: 31337,
+        destinationChainId: 31338,
+        escrow: source.escrow,
+        executor: destination.executor,
+      },
+    ];
+    let env = await readFile(".env.local", "utf8").catch(() => "");
+    for (const [key, value] of Object.entries({
+      NEXT_PUBLIC_ENABLE_LOCAL: "true",
+      NEXT_PUBLIC_ROUTES_JSON: JSON.stringify(routes),
+    })) {
+      const line = `${key}=${value}`;
+      const pattern = new RegExp(`^${key}=.*$`, "m");
+      env = pattern.test(env)
+        ? env.replace(pattern, line)
+        : `${env.trimEnd()}\n${line}\n`;
+    }
+    await writeFile(".env.local", env.trimStart());
+    console.log(
+      "Public local route configuration written to Git-ignored .env.local. Restart Next.js if needed.",
+    );
+    console.log(
+      "Use an Anvil development account, not the funded testnet wallet. Local relayer is running; Ctrl+C stops both nodes.",
+    );
+    while (!stopping) {
+      await relay();
+      await delay(1500);
+    }
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);

@@ -2,7 +2,7 @@
 
 Conditional cross-chain orders with **Next.js, Foundry, Chainlink CCIP 2.0 and Uniswap v3**. User principal stays in a source escrow; a designated solver supplies destination tokens and swaps them to the user's fixed recipient. An authenticated terminal receipt allocates either solver payment or a user refund on the source.
 
-**Current status: locally tested release candidate, not production-audited.** Public deployment and publishing are deferred at the user's request. The working two-node local demo uses real Uniswap bytecode, a fixed local oracle and an explicitly unauthenticated transport fixture. It does not establish live CCIP delivery or prize eligibility. Funded Ethereum/OP Sepolia wallets have not been spent by this work.
+**Current status: locally tested release candidate, not production-audited.** Public testnet deployment remains deferred. Source repository: [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp). The working two-node local demo uses real Uniswap bytecode, a fixed local oracle and an explicitly unauthenticated transport fixture. It does not establish live CCIP delivery or prize eligibility. Funded Ethereum/OP Sepolia wallets have not been spent by this work.
 
 ## Run the complete local demo
 
@@ -95,11 +95,20 @@ The selected public testnet script omits a sequencer-uptime feed explicitly. The
 ```powershell
 npm run contracts:test
 npm run test:ui
+npm run test:integration
 npm run typecheck
 npm run format:check
 npm run build
 npm run check:public-build
 ```
+
+`test:integration` deploys fresh contracts on two local Anvil chains, runs real
+Uniswap swaps and settlement/refund checks, then stops its own nodes without
+rewriting `.env.local`. It refuses occupied ports. For a check alongside an
+existing demo, set `BISHARP_LOCAL_SOURCE_PORT=18545` and
+`BISHARP_LOCAL_DESTINATION_PORT=19545`; custom ports apply only to this smoke
+mode. See [the hardening review](docs/HARDENING_REVIEW.md) for the latest fixes,
+verification results and remaining limits.
 
 Extended deterministic campaign (PowerShell; ensure `forge` is on PATH, or use `node scripts/forge.mjs`):
 
@@ -113,7 +122,7 @@ node scripts/test-report.mjs deployments/local-test-results.json 0x6d756d626169
 
 Recorded results: [reports/foundry-results.json](reports/foundry-results.json), [reports/GAS.md](reports/GAS.md), [.gas-snapshot](.gas-snapshot), [deployments/local-smoke-summary.json](deployments/local-smoke-summary.json). Raw test logs are excluded from Git; the summary contains no keys. Tests include real official Uniswap pool bytecode, fuzzed 6/18-decimal amount conservation and output, adversarial message ordering/replay/races, stalled return receipts, invalid oracle answers, sequencer recovery boundaries, frozen claims, token callbacks, exposure caps and source solvency. Frontend input/route tests reject silent rounding, invalid identities, overflows, same-chain/mainnet/duplicate/mixed routes.
 
-The build checker verifies that locally configured deployment keys are absent from public static assets; it never prints their values. This is a targeted check, not a substitute for independent review. Seven frontend/API tests cover inputs, routes and the local faucet boundary. A CI workflow is prepared in `.github/workflows/check.yml` but has not run remotely because the repository is not published.
+The build checker verifies that locally configured deployment keys are absent from public static assets; it never prints their values. This is a targeted check, not a substitute for independent review. Eight frontend/API tests cover inputs, routes and the local faucet boundary. The CI workflow in `.github/workflows/check.yml` runs contract, frontend, build and two-chain integration checks on pushes and pull requests. Local results do not establish remote CI success.
 
 ## Public testnet deployment — deferred
 
@@ -123,10 +132,10 @@ No broadcast is needed for local work. When public deployment is explicitly resu
 
 ## Partner requirements
 
-Targets: **Chainlink CCIP 2.0** and **Uniswap Foundation**. See [docs/PARTNER_REQUIREMENTS.md](docs/PARTNER_REQUIREMENTS.md), [FEEDBACK.md](FEEDBACK.md), and [docs/RESEARCH_REVIEW.md](docs/RESEARCH_REVIEW.md).
+Targets: **Chainlink CCIP 2.0** and **Uniswap Foundation**. See [docs/PARTNER_REQUIREMENTS.md](docs/PARTNER_REQUIREMENTS.md), [FEEDBACK.md](FEEDBACK.md).
 
 - Chainlink integration code is implemented and tested locally. Actual CCIP 2.0 on-chain state-change/message evidence remains outstanding; the local mock cannot satisfy it.
-- Uniswap v3 integration is implemented and exercised against official bytecode, including the two-node demo. `FEEDBACK.md` is present. A public open-source GitHub repository and the developer feedback form linking it remain deferred, not falsely marked complete.
-- Public hosting, explorer source verification, event eligibility, a recorded demo and submission are separate remaining tasks. No partner form, Git push, public deployment or competition submission was performed.
+- Uniswap v3 integration is implemented and exercised against official bytecode, including the two-node demo. `FEEDBACK.md` is present. Repository: [Samarth208P/bisharp](https://github.com/Samarth208P/bisharp). The repository is public; the developer feedback form remains outstanding.
+- Public hosting, explorer source verification, event eligibility, a recorded demo and submission are separate remaining tasks. No partner form, public deployment or competition submission has been performed.
 
-The source PRD and research are supporting design documents, not guarantees of implementation completeness. [history.md](history.md) records actual progress. The earlier `Bisharp.sol` single-chain implementation remains only as a tested reference; the main UI and new contracts use the cross-chain lifecycle.
+The earlier `Bisharp.sol` single-chain implementation remains only as a tested reference; the main UI and new contracts use the cross-chain lifecycle.

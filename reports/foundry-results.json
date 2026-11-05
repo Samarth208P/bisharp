@@ -1,6 +1,6 @@
 {
   "seed": "0x6d756d626169",
-  "passed": 37,
+  "passed": 42,
   "failed": 0,
   "fuzzCases": 40000,
   "invariantCalls": 262144,
@@ -8,6 +8,14 @@
     {
       "suite": "contracts/test/Adversarial.t.sol:AdversarialTest",
       "name": "testFrozenClaimRetainsOwnershipAndLiability()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/Adversarial.t.sol:AdversarialTest",
+      "name": "testTaxEnabledAfterDepositCannotUnderpayClaim()",
       "status": "Success",
       "kind": "unit",
       "runs": 1,
@@ -276,6 +284,38 @@
       "kind": "invariant",
       "runs": 1024,
       "calls": 131072
+    },
+    {
+      "suite": "contracts/test/CrossInvariant.t.sol:CrossInvariantTest",
+      "name": "testRecoveryAfterTimeAndTransportOutage()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossPayout.t.sol:CrossPayoutTest",
+      "name": "testEscrowCannotBeSolver()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossPayout.t.sol:CrossPayoutTest",
+      "name": "testSenderSurchargeCannotSpendAnotherOrdersPrincipal()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
+    },
+    {
+      "suite": "contracts/test/CrossPayout.t.sol:CrossPayoutTest",
+      "name": "testTaxAfterDepositPreservesRefundAndSolverPayment()",
+      "status": "Success",
+      "kind": "unit",
+      "runs": 1,
+      "calls": 0
     },
     {
       "suite": "contracts/test/RealV3.t.sol:RealV3Test",

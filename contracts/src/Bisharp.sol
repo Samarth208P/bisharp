@@ -110,7 +110,10 @@ contract Bisharp is ReentrancyGuard {
         if (amount == 0) revert InvalidState();
         credits[beneficiary] = 0;
         totalLiability -= amount;
+        uint256 escrowBefore = inputToken.balanceOf(address(this));
+        uint256 beneficiaryBefore = inputToken.balanceOf(beneficiary);
         inputToken.safeTransfer(beneficiary, amount);
+        if (inputToken.balanceOf(address(this)) + amount != escrowBefore || inputToken.balanceOf(beneficiary) != beneficiaryBefore + amount) revert UnsupportedToken();
         emit Claimed(beneficiary, amount);
     }
 }

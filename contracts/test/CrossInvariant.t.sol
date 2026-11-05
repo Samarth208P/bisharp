@@ -9,6 +9,7 @@ import {TestToken} from "../src/TestToken.sol";
 import {MockFeed} from "./Bisharp.t.sol";
 
 contract CrossHandler {
+    CrossVm constant vm = CrossVm(address(uint160(uint256(keccak256("hevm cheat code")))));
     SourceEscrow public source;
     DestinationExecutor public destination;
     MockTransport public transport;
@@ -71,9 +72,58 @@ contract CrossHandler {
         if (count == 0) return;
         try source.claim(uint256(seed) % count + 1) {} catch {}
     }
+
+    function advanceTime(uint32 seed) external {
+        vm.warp(block.timestamp + uint256(seed) % 7200);
+    }
+
+    function refreshPrice() external {
+        MockFeed(address(destination.priceFeed())).set(2000e8, block.timestamp);
+    }
+
+    function outage(bool broken) external {
+        transport.setFee(1e12, broken);
+    }
+
+    function resend(uint64 seed) external {
+        uint256 count = source.orderCount();
+        if (count == 0) return;
+        try source.resendCreate{value: 1e12}(uint256(seed) % count + 1, 400_000) {} catch {}
+    }
+
+    function expire(uint64 seed) external {
+        uint256 count = source.orderCount();
+        if (count == 0) return;
+        try destination.expireOrder(uint256(seed) % count + 1) {} catch {}
+    }
+
+    // Restore transport and drain every pending order after arbitrary scheduling.
+    // Reverts are intentional failures here: recovery must actually complete.
+    function finish() external {
+        transport.setFee(1e12, false);
+        for (uint256 i; i < transport.count(); ++i) transport.deliver(i);
+        uint256 count = source.orderCount();
+        for (uint256 id = 1; id <= count; ++id) {
+            O.Record memory d = destination.getOrder(id);
+            if (d.state == O.State.Open) {
+                if (block.timestamp < d.terms.deadline) vm.warp(d.terms.deadline);
+                destination.expireOrder(id);
+            }
+            destination.dispatchReceipt{value: 1e12}(id, 300_000);
+        }
+        for (uint256 i; i < transport.count(); ++i) transport.deliver(i);
+        for (uint256 id = 1; id <= count; ++id) {
+            if (!source.getOrder(id).claimed) source.claim(id);
+        }
+        require(source.totalLiability() == 0 && source.credits(address(this)) == 0, "all funds recoverable");
+    }
 }
 
 contract CrossInvariantTest {
+    struct FuzzSelector {
+        address addr;
+        bytes4[] selectors;
+    }
     CrossVm constant vm = CrossVm(address(uint160(uint256(keccak256("hevm cheat code")))));
     SourceEscrow source;
     DestinationExecutor destination;
@@ -115,6 +165,28 @@ contract CrossInvariantTest {
 
     function targetContracts() external view returns (address[] memory) {
         return targets;
+    }
+
+    function excludeSelectors() external view returns (FuzzSelector[] memory exclusions) {
+        exclusions = new FuzzSelector[](1);
+        bytes4[] memory selectors = new bytes4[](1);
+        selectors[0] = CrossHandler.finish.selector;
+        exclusions[0] = FuzzSelector(address(handler), selectors);
+    }
+
+    function afterInvariant() public {
+        handler.finish();
+        invariantSolvencyAndNoPrematureOrDoubleSettlement();
+    }
+
+    function testRecoveryAfterTimeAndTransportOutage() public {
+        handler.create(100);
+        handler.relay(0);
+        handler.outage(true);
+        handler.advanceTime(7200 - 1);
+        handler.cancel(0);
+        handler.finish();
+        require(source.getOrder(1).claimed, "expired order recovered after outage");
     }
 
     function invariantSolvencyAndNoPrematureOrDoubleSettlement() public view {

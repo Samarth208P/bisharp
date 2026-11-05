@@ -10,6 +10,11 @@ Solidity 0.8.28, Cancun EVM, optimizer 200 runs. Before/after snapshots are reta
 
 The final snapshot may differ by a small amount as test dispatch tables change. The recorded comparison held the scenario, fuzz seed and optimizer run count constant. The local mock stores message bytes, so reducing payload disproportionately improves these scenario totals compared with a live router. Do not present the table as a measured percentage saving on public CCIP.
 
+The 2026-11-06 hardening pass refreshed `.gas-snapshot`. Exact source payout
+balance checks increase the real-v3 round trip to 1,596,144 scenario gas and the
+mock fill/claim to 1,626,100. The table above preserves the earlier optimization
+comparison; the snapshot records the current implementation.
+
 ## Optimizations retained
 
 - Return receipts are **128 bytes instead of 384 bytes** (256 bytes / 66.7% less application payload). The source already stores immutable terms and their domain-bound hash. A receipt needs only version, outcome, order ID and terms hash, authenticated by the pinned router, remote selector and peer.

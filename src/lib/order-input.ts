@@ -38,8 +38,10 @@ export function orderInput(input: {
 }): Terms {
   if (![1, 24, 72, 168].includes(input.hours))
     throw new Error("Choose a supported expiry.");
+  if (!Number.isSafeInteger(input.now) || input.now < 0)
+    throw new Error("A valid current timestamp is required.");
   return {
-    owner: getAddress(input.owner),
+    owner: wallet(input.owner, "Owner"),
     recipient: wallet(input.recipient || input.owner, "Recipient"),
     solver: wallet(input.solver || input.owner, "Solver"),
     deadline: BigInt(Math.floor(input.now / 1000) + input.hours * 3600),

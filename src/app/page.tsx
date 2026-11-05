@@ -593,6 +593,7 @@ export default function Home() {
   }
   async function send(action: Action, value = action.value || 0n) {
     if (lock.current || !route) return;
+    const context = identity.current;
     lock.current = true;
     setBusy(action.label);
     setError("");
@@ -639,6 +640,8 @@ export default function Home() {
       if (!equal(active[0], account))
         throw new Error("Wallet account changed. Review again.");
       const client = rpc(route, action.side);
+      if ((await client.getChainId()) !== chain.id)
+        throw new Error("RPC network does not match the action.");
       const { request } = await client.simulateContract({
         address: action.address,
         abi: action.abi,
@@ -647,6 +650,11 @@ export default function Home() {
         account,
         value,
       });
+      if (
+        context !== identity.current ||
+        !equal((await wallet.getAddresses())[0], account)
+      )
+        throw new Error("Wallet or route changed. Review again.");
       hash = await wallet.writeContract(request);
       const transaction: Tx = {
         hash,
@@ -693,6 +701,8 @@ export default function Home() {
     quoteArgs: readonly unknown[],
   ) {
     if (!route || busy) return;
+    const context = identity.current;
+    const walletGeneration = generation.current;
     try {
       const fee = (await read(
         route,
@@ -702,6 +712,11 @@ export default function Home() {
         quoteName,
         quoteArgs,
       )) as bigint;
+      if (
+        context !== identity.current ||
+        walletGeneration !== generation.current
+      )
+        return;
       setAccepted(false);
       setError("");
       setReview({ action, fee, budget: fee + fee / 5n + 1n });
@@ -711,6 +726,8 @@ export default function Home() {
   }
   async function create(e: React.FormEvent) {
     e.preventDefault();
+    const context = identity.current;
+    const walletGeneration = generation.current;
     try {
       if (
         !route?.escrow ||
@@ -735,6 +752,8 @@ export default function Home() {
       });
       if (equal(terms.recipient, route.executor))
         throw new Error("The destination executor cannot be the recipient.");
+      if (equal(terms.solver, route.escrow))
+        throw new Error("The source escrow cannot be the solver.");
       if (terms.principal > data.balance)
         throw new Error("Insufficient source bUSD. Mint test tokens first.");
       if (terms.principal > data.maxPrincipal)
@@ -753,6 +772,11 @@ export default function Home() {
         "quoteCreate",
         [terms, GAS],
       )) as bigint;
+      if (
+        context !== identity.current ||
+        walletGeneration !== generation.current
+      )
+        return;
       setAccepted(false);
       setError("");
       setReview({
